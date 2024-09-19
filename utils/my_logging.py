@@ -3,86 +3,99 @@ import psutil
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from logging.handlers import RotatingFileHandler
+import numpy as np
 
 # Initialize TensorBoard writer
 writer = SummaryWriter()
 
-# Set up logging with rotating file handler
+# Set up logging
 logger = logging.getLogger("tetris_ai_training")
 logger.setLevel(logging.INFO)
-
-# Create a rotating file handler which logs even debug messages
-handler = RotatingFileHandler("training.log", maxBytes=10**6, backupCount=5)
+handler = RotatingFileHandler("training_v3.log", maxBytes=10**6, backupCount=5)
 handler.setLevel(logging.INFO)
-
-# Create console handler with a higher log level
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.WARNING)
-
-# Create formatter and add it to the handlers
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 handler.setFormatter(formatter)
 console_handler.setFormatter(formatter)
-
-# Add the handlers to the logger
 logger.addHandler(handler)
 logger.addHandler(console_handler)
 
 
-def log_system_memory():
-    memory_info = psutil.virtual_memory()
-    logger.debug(f"System RAM: {memory_info.percent}% used")
+def log_reward_components(episode, reward):
+    """Log the individual components of the reward for detailed analysis."""
+    logger.info(f"Episode {episode}: Reward Components - Total Reward: {reward}")
 
 
-def log_vram_usage():
-    if torch.cuda.is_available():
-        vram_used = torch.cuda.memory_allocated() / (1024**3)
-        logger.debug(f"VRAM Usage: {vram_used:.2f} GB")
+def log_q_values(episode, q_values):
+    """Log statistics about Q-values."""
+    if q_values:
+        avg_q_value = np.mean(q_values)
+        min_q_value = np.min(q_values)
+        max_q_value = np.max(q_values)
+        std_q_value = np.std(q_values)
+        logger.info(
+            f"Episode {episode}: Avg Q-Value={avg_q_value:.4f}, Min Q-Value={min_q_value:.4f}, Max Q-Value={max_q_value:.4f}, Std Dev Q-Value={std_q_value:.4f}"
+        )
+        writer.add_scalar("Q-Values/Avg", avg_q_value, episode)
+        writer.add_scalar("Q-Values/Min", min_q_value, episode)
+        writer.add_scalar("Q-Values/Max", max_q_value, episode)
+        writer.add_scalar("Q-Values/StdDev", std_q_value, episode)
+
+
+def log_action_distribution(action_count, episode):
+    """Log the distribution of actions taken by the agent."""
+    total_actions = sum(action_count.values())
+    action_dist = {k: v / total_actions for k, v in action_count.items()}
+    logger.info(f"Episode {episode}: Action Distribution - {action_dist}")
+    for action, freq in action_dist.items():
+        writer.add_scalar(f"Actions/Action_{action}", freq, episode)
+
+
+def log_loss(loss, episode):
+    """Log the training loss."""
+    logger.info(f"Episode {episode}: Loss={loss:.6f}")
+    writer.add_scalar("Loss/Training", loss, episode)
 
 
 def log_episode(episode, episode_reward, steps, lines_cleared, epsilon, q_values, interval=10):
+    """Log episode summary."""
     if episode % interval != 0:
         return
     avg_q_value = sum(q_values) / len(q_values) if q_values else 0.0
     logger.info(
-        f"Episode {episode}: Reward={episode_reward}, Steps={steps}, Lines Cleared={lines_cleared}, Epsilon={epsilon:.4f}, Avg Q-Value={avg_q_value:.4f}"
+        f"Episode {episode}: Reward={episode_reward}, Steps={steps}, Lines Cleared={lines_cleared}, "
+        f"Epsilon={epsilon:.4f}, Avg Q-Value={avg_q_value:.4f}"
     )
-    log_to_tensorboard(
-        episode,
-        episode_reward,
-        steps,
-        lines_cleared,
-        epsilon,
-        loss=None,  # Replace with actual loss if tracked
-        q_values=q_values,
-    )
-
-
-def log_batch(loss, grad_norm, threshold=100.0, episode=None):
-    if loss > threshold:
-        logger.info(f"Batch Loss: {loss:.6f}, Gradient Norm: {grad_norm:.6f}")
-    else:
-        logger.debug(f"Batch Loss: {loss:.6f}, Gradient Norm: {grad_norm:.6f}")
+    writer.add_scalar("Episode/Reward", episode_reward, episode)
+    writer.add_scalar("Episode/Steps", steps, episode)
+    writer.add_scalar("Episode/Lines Cleared", lines_cleared, episode)
+    writer.add_scalar("Episode/Epsilon", epsilon, episode)
+    writer.add_scalar("Episode/Avg Q-Value", avg_q_value, episode)
 
 
 def aggregate_metrics(episode_rewards, episode_lengths, lines_cleared, interval=100):
+    """Aggregate metrics across multiple episodes."""
     if len(episode_rewards) < interval:
         return
     avg_reward = sum(episode_rewards[-interval:]) / interval
     avg_steps = sum(episode_lengths[-interval:]) / interval
     avg_lines = sum(lines_cleared[-interval:]) / interval
     logger.info(
-        f"Last {interval} Episodes: Avg Reward={avg_reward:.2f}, Avg Steps={avg_steps:.2f}, Avg Lines Cleared={avg_lines:.2f}"
+        f"Last {interval} Episodes: Avg Reward={avg_reward:.2f}, Avg Steps={avg_steps:.2f}, "
+        f"Avg Lines Cleared={avg_lines:.2f}"
     )
-    # Optionally, log to TensorBoard
     writer.add_scalar("Metrics/Average Reward", avg_reward, interval)
     writer.add_scalar("Metrics/Average Steps", avg_steps, interval)
     writer.add_scalar("Metrics/Average Lines Cleared", avg_lines, interval)
 
 
 def log_hardware_usage(episode):
+    """Log system and hardware usage like RAM and VRAM."""
     ram_usage = psutil.virtual_memory().percent
     logger.info(f"System RAM usage: {ram_usage}%")
+    writer.add_scalar("Hardware/RAM Usage", ram_usage, episode)
+
     if torch.cuda.is_available():
         vram_usage = torch.cuda.memory_allocated() / (1024**3)
         logger.info(f"VRAM Usage: {vram_usage:.2f} GB")
@@ -110,4 +123,5 @@ def log_hardware_to_tensorboard(episode):
 
 
 def close_logging():
+    """Close TensorBoard writer."""
     writer.close()

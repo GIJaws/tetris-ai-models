@@ -1,29 +1,33 @@
-import gymnasium as gym
-import gym_simpletetris
+import numpy as np
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
-import numpy as np
 from collections import deque
 import random
 import math
+import gymnasium as gym
+import gym_simpletetris
+import logging
 import sys
 import os
-import logging
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
-
 from models.cnn_lstm_dqn import CNNLSTMDQN
 from utils.helpful_utils import simplify_board, ACTION_COMBINATIONS
 from utils.my_logging import (
-    # log_batch,
     log_episode,
+    log_q_values,
+    log_reward_components,
+    log_action_distribution,
+    log_loss,
     log_hardware_usage,
     aggregate_metrics,
     close_logging,
 )
 
+# Enhance logging by adding action distribution and loss tracking
+action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Hyperparameters
@@ -88,19 +92,14 @@ def optimize_model(memory, policy_net, target_net, optimizer, episode):
     # Compute Huber loss
     loss = F.smooth_l1_loss(state_action_values.squeeze(), expected_state_action_values)
 
+    # Log the loss
+    log_loss(loss.item(), episode)
+
     # Optimize the model
     optimizer.zero_grad()
     loss.backward()
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
-
-    # Calculate gradient norm for logging
-    total_norm = 0
-    for p in policy_net.parameters():
-        if p.grad is not None:
-            param_norm = p.grad.data.norm(2)
-            total_norm += param_norm.item() ** 2
-    total_norm = total_norm**0.5
 
 
 def select_action(state, policy_net, steps_done, n_actions):
@@ -139,6 +138,9 @@ def train():
     episode_rewards = []
     episode_lengths = []
     lines_cleared_list = []
+    episode_q_values = []
+    reward_components = {"lines_cleared": 0, "max_height": 0, "holes": 0, "bumpiness": 0, "game_over": 0}
+
     try:
         for episode in range(1, NUM_EPISODES + 1):
             state, _ = env.reset()
@@ -151,18 +153,19 @@ def train():
 
             while True:
                 state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
-
                 action, eps_threshold, avg_q = select_action(state_tensor, policy_net, steps_done, n_actions)
 
-                # Execute action
+                action_count[action] += 1  # Update action counts for logging
+
                 action_combination = ACTION_COMBINATIONS.get(action, ["idle"])
                 next_state, reward, terminated, truncated, info = env.step(action_combination)
-
                 next_state_simple = simplify_board(next_state)
                 done = terminated or truncated
-
                 lines_cleared += info.get("lines_cleared", 0)
+
+                # Calculate and log reward components
                 reward = calculate_reward(next_state_simple, lines_cleared, done, state)
+                log_reward_components(episode, reward)
 
                 episode_reward += reward
                 # Inside the training loop
@@ -186,55 +189,35 @@ def train():
                     done,
                 )
 
-                # Optimize the model
                 optimize_model(memory, policy_net, target_net, optimizer, episode)
 
                 steps_done += 1
                 episode_steps += 1
-                episode_q_values.append(avg_q)
 
                 if done:
                     break
 
-            # Log hardware usage once per episode
-            if episode % HARDWARE_LOG_INTERVAL == 0:
-                log_hardware_usage(episode)
+            # Log hardware usage and update target network periodically...
+            log_hardware_usage(episode)
 
-            # Update target network
             if episode % TARGET_UPDATE == 0:
                 target_net.load_state_dict(policy_net.state_dict())
 
-            # Aggregate episode metrics
-            episode_rewards.append(episode_reward)
-            episode_lengths.append(episode_steps)
-            lines_cleared_list.append(lines_cleared)
-            # Loss tracking can be implemented here if desired
+            # Log episode stats
+            log_episode(episode, episode_reward, episode_steps, lines_cleared, eps_threshold, episode_q_values)
+            log_q_values(episode, episode_q_values)
 
-            # Log episode information at specified intervals
-            if episode % EPISODE_LOG_INTERVAL == 0:
-                log_episode(
-                    episode,
-                    episode_reward,
-                    episode_steps,
-                    lines_cleared,
-                    eps_threshold,
-                    episode_q_values,
-                )
-
-            # Aggregate and log metrics every specified interval
+            # Log the action distribution
             if episode % METRICS_AGGREGATE_INTERVAL == 0:
-                aggregate_metrics(
-                    episode_rewards, episode_lengths, lines_cleared_list, interval=METRICS_AGGREGATE_INTERVAL
-                )
+                log_action_distribution(action_count, episode)
+                action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
+
             if episode % SAVE_MODEL_INTERVAL == 0:
                 # Save the trained model every SAVE_MODEL_INTERVAL
-                torch.save(policy_net.state_dict(), f"outputs/cnn_lstm_dqn_episode_{episode}_v2.pth")
+                torch.save(policy_net.state_dict(), f"outputs/cnn_lstm_dqn_episode_{episode}_v3.pth")
     finally:
-        # Save the trained model
-        torch.save(policy_net.state_dict(), "outputs/cnn_lstm_dqn_v2.pth")
+        torch.save(policy_net.state_dict(), "outputs/cnn_lstm_dqn_v3.pth")
         env.close()
-
-        # Close TensorBoard writer
         close_logging()
 
 
