@@ -100,6 +100,7 @@ def train():
     for episode in range(NUM_EPISODES):
         state, _ = env.reset()
         state = simplify_board(state)
+        last_state = state.copy()
         state_deque = deque([state] * SEQUENCE_LENGTH, maxlen=SEQUENCE_LENGTH)
         episode_reward = 0
 
@@ -112,13 +113,17 @@ def train():
             action_combination = ACTION_COMBINATIONS[action]
 
             # Pass the list directly without wrapping it in another list
-            next_state, reward, terminated, truncated, _ = env.step(action_combination)
+            next_state, _, terminated, truncated, info = env.step(action_combination)
 
-            next_state = simplify_board(next_state)
+            next_state_simple = simplify_board(next_state)
             done = terminated or truncated
+
+            # Calculate reward using the improved function
+            reward = calculate_reward(next_state_simple, info["lines_cleared"], done, last_state)
+
             episode_reward += reward
 
-            state_deque.append(next_state)
+            state_deque.append(next_state_simple)
             next_state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
 
             memory.push(
@@ -134,6 +139,8 @@ def train():
             if done:
                 break
 
+            last_state = state.copy()
+            state = next_state_simple
             steps_done += 1
 
         if episode % TARGET_UPDATE == 0:
@@ -143,6 +150,59 @@ def train():
 
     torch.save(policy_net.state_dict(), "cnn_lstm_dqn.pth")
     env.close()
+
+
+def calculate_reward(board, lines_cleared, game_over, last_board):
+    if isinstance(board, torch.Tensor):
+        board = board.squeeze().cpu().numpy()
+    if isinstance(last_board, torch.Tensor):
+        last_board = last_board.squeeze().cpu().numpy()
+
+    # Ensure we're working with a 2D array
+    if board.ndim == 3:
+        board = np.any(board != 0, axis=2).astype(np.bool_)
+    if last_board.ndim == 3:
+        last_board = np.any(last_board != 0, axis=2).astype(np.bool_)
+
+    reward = 0
+
+    # Game Over Penalty
+    if game_over:
+        reward += -100
+        # You can also return early if you prefer
+        return -100
+
+    # Line Clear Reward
+    line_clear_reward = [0, 40, 100, 300, 1200]  # Standard Tetris scoring
+    reward += line_clear_reward[lines_cleared]
+
+    # Height Calculation
+    heights = np.array([board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in board.T])
+
+    # Stack Height Penalty
+    max_height = np.max(heights)
+    reward += -0.5 * max_height
+
+    # Holes Calculation
+    holes = 0
+    for x in range(board.shape[1]):
+        column = board[:, x].astype(np.bool_)  # Ensure the column is boolean
+        filled = np.where(column)[0]
+        if filled.size > 0:
+            # Count empty cells below the first filled cell
+            holes += np.sum(~column[filled[0] :])
+
+    reward += -0.7 * holes
+
+    # Bumpiness Calculation
+    bumpiness = np.sum(np.abs(np.diff(heights)))
+    reward += -0.2 * bumpiness
+
+    # Idling Penalty
+    if np.array_equal(board, last_board):
+        reward += -0.1  # Small penalty for idling
+
+    return reward
 
 
 if __name__ == "__main__":
