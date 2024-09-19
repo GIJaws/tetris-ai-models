@@ -105,7 +105,7 @@ def train_dqn():
             while True:
                 eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1.0 * steps_done / EPS_DECAY)
                 action = select_action(state, policy_net, n_actions, eps_threshold)
-                action_count[action] += 1  # Update action counts for logging
+                action_count[action.item()] += 1  # Update action counts for logging
                 observation, reward, terminated, truncated, info = env.step([action.item()])
                 reward = calculate_reward(observation, info["lines_cleared"], terminated)
                 total_reward += reward
@@ -128,42 +128,42 @@ def train_dqn():
 
                 steps_done += 1
 
-                # Log hardware usage and update target network periodically...
-                if episode % HARDWARE_LOG_INTERVAL == 0:
-                    log_hardware_usage(episode)
-
-                if episode % TARGET_UPDATE == 0:
-                    target_net.load_state_dict(policy_net.state_dict())
-
-                # Log episode stats and other metrics less frequently
-                if episode % EPISODE_LOG_INTERVAL == 0:
-                    avg_loss = total_loss / loss_count if loss_count > 0 else 0
-                    log_episode(
-                        episode,
-                        episode_reward,
-                        episode_steps,
-                        lines_cleared,
-                        eps_threshold,
-                        avg_loss,
-                        interval=EPISODE_LOG_INTERVAL,
-                    )
-                    total_loss = 0
-                    loss_count = 0
-
-                if episode % METRICS_AGGREGATE_INTERVAL == 0:
-                    log_action_distribution(action_count, episode)
-                    log_q_values(episode, episode_q_values, interval=METRICS_AGGREGATE_INTERVAL)
-                    action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
-                    episode_q_values = []
-
-                if episode % SAVE_MODEL_INTERVAL == 0:
-                    # Save the trained model every SAVE_MODEL_INTERVAL
-                    torch.save(policy_net.state_dict(), f"outputs/simple_dqn_{episode}_v1.pth")
+            # Log hardware usage and update target network periodically...
+            if episode % HARDWARE_LOG_INTERVAL == 0:
+                log_hardware_usage(episode)
 
             if episode % TARGET_UPDATE == 0:
                 target_net.load_state_dict(policy_net.state_dict())
 
-            if episode % 100 == 0:
+            # Log episode stats and other metrics less frequently
+            if episode % EPISODE_LOG_INTERVAL == 0:
+                avg_loss = total_loss / loss_count if loss_count > 0 else 0
+                log_episode(
+                    episode,
+                    episode_reward,
+                    episode_steps,
+                    lines_cleared,
+                    eps_threshold,
+                    avg_loss,
+                    interval=EPISODE_LOG_INTERVAL,
+                )
+                total_loss = 0
+                loss_count = 0
+
+            if episode % METRICS_AGGREGATE_INTERVAL == 0:
+                log_action_distribution(action_count, episode)
+                log_q_values(episode, episode_q_values, interval=METRICS_AGGREGATE_INTERVAL)
+                action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
+                episode_q_values = []
+
+            if episode % SAVE_MODEL_INTERVAL == 0:
+                # Save the trained model every SAVE_MODEL_INTERVAL
+                torch.save(policy_net.state_dict(), f"outputs/simple_dqn_{episode}_v1.pth")
+
+            if episode % TARGET_UPDATE == 0:
+                target_net.load_state_dict(policy_net.state_dict())
+
+            if episode % 25 == 0:
                 print(
                     f"Episode {episode}/{NUM_EPISODES}, Avg Reward (last 100): {np.mean(episode_rewards[-100:]):.2f}"
                 )
