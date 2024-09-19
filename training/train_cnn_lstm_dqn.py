@@ -2,10 +2,11 @@ import gymnasium as gym
 import gym_simpletetris
 import torch
 import torch.optim as optim
+import torch.nn.functional as F
 import numpy as np
 from collections import deque
 import random
-
+import math
 import sys
 import os
 
@@ -14,6 +15,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
 from models.cnn_lstm_dqn import CNNLSTMDQN
+from utils.helpful_utils import simplify_board
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -49,32 +51,35 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     transitions = memory.sample(BATCH_SIZE)
     batch = list(zip(*transitions))
 
-    state_batch = torch.cat(batch[0]).to(device)
-    action_batch = torch.cat(batch[1]).to(device)
-    reward_batch = torch.cat(batch[2]).to(device)
-    next_state_batch = torch.cat(batch[3]).to(device)
-    done_batch = torch.cat(batch[4]).to(device)
+    state_batch = torch.cat(batch[0])
+    action_batch = torch.cat(batch[1])
+    reward_batch = torch.tensor(batch[2], dtype=torch.float32, device=device)
+    next_state_batch = torch.cat(batch[3])
+    done_batch = torch.tensor(batch[4], dtype=torch.bool, device=device)
 
-    hidden = policy_net.init_hidden(BATCH_SIZE)
-    state_action_values, _ = policy_net(state_batch, hidden)
-    state_action_values = state_action_values.gather(1, action_batch)
+    # Model will convert bool to float32 internally
+    state_action_values = policy_net(state_batch).gather(1, action_batch)
 
     with torch.no_grad():
-        next_state_values, _ = target_net(next_state_batch, hidden)
-        next_state_values = next_state_values.max(1)[0].unsqueeze(1)
+        next_state_values = torch.zeros(BATCH_SIZE, device=device)
+        next_state_values[~done_batch] = target_net(next_state_batch[~done_batch]).max(1)[0]
 
-    expected_state_action_values = (next_state_values * GAMMA * (1 - done_batch)) + reward_batch
+    expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
-    loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
+    loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
 
     optimizer.zero_grad()
     loss.backward()
+    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
 
 
 def train():
     env = gym.make("SimpleTetris-v0")
-    input_shape = (SEQUENCE_LENGTH, *env.observation_space.shape)
+    state, _ = env.reset()
+    state = simplify_board(state)
+    # state shape is now (10, 40)
+    input_shape = (state.shape[0], state.shape[1])
     n_actions = env.action_space.n
 
     policy_net = CNNLSTMDQN(input_shape, n_actions).to(device)
@@ -86,27 +91,27 @@ def train():
 
     steps_done = 0
     for episode in range(NUM_EPISODES):
-        state = env.reset()
+        state, _ = env.reset()
+        state = simplify_board(state)
         state_deque = deque([state] * SEQUENCE_LENGTH, maxlen=SEQUENCE_LENGTH)
         episode_reward = 0
 
         while True:
+            # Convert to torch tensor (float32)
             state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
+            # state_tensor shape: (1, sequence_length, 10, 40)
 
-            eps_threshold = EPS_END + (EPS_START - EPS_END) * np.exp(-steps_done / EPS_DECAY)
-            if random.random() > eps_threshold:
-                with torch.no_grad():
-                    action, _ = policy_net(state_tensor)
-                    action = action.max(1)[1].view(1, 1)
-            else:
-                action = torch.tensor([[random.randrange(n_actions)]], device=device, dtype=torch.long)
+            action = select_action(state_tensor, policy_net, steps_done, n_actions, device=device)
 
-            next_state, reward, done, _ = env.step(action.item())
+            next_state, reward, terminated, truncated, _ = env.step([action.item()])
+            next_state = simplify_board(next_state)
+            done = terminated or truncated
             episode_reward += reward
 
             state_deque.append(next_state)
             next_state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
 
+            # Store float tensors in memory
             memory.push(state_tensor, action, reward, next_state_tensor, done)
 
             optimize_model(memory, policy_net, target_net, optimizer)
@@ -123,6 +128,16 @@ def train():
 
     torch.save(policy_net.state_dict(), "cnn_lstm_dqn.pth")
     env.close()
+
+
+def select_action(state, policy_net, steps_done, n_actions, device):
+    sample = random.random()
+    eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1.0 * steps_done / EPS_DECAY)
+    if sample > eps_threshold:
+        with torch.no_grad():
+            return policy_net(state).max(1)[1].view(1, 1)
+    else:
+        return torch.tensor([[random.randrange(n_actions)]], device=device, dtype=torch.long)
 
 
 if __name__ == "__main__":
