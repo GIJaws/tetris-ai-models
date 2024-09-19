@@ -11,7 +11,7 @@ writer = SummaryWriter()
 # Set up logging
 logger = logging.getLogger("tetris_ai_training")
 logger.setLevel(logging.INFO)
-handler = RotatingFileHandler("training_v3.log", maxBytes=10**6, backupCount=5)
+handler = RotatingFileHandler("training_simple_dqn.log", maxBytes=10**6, backupCount=5)
 handler.setLevel(logging.INFO)
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.WARNING)
@@ -27,25 +27,29 @@ def log_reward_components(episode, reward):
     logger.info(f"Episode {episode}: Reward Components - Total Reward: {reward}")
 
 
-def log_q_values(episode, q_values):
-    """Log statistics about Q-values."""
-    if q_values:
-        avg_q_value = np.mean(q_values)
-        min_q_value = np.min(q_values)
-        max_q_value = np.max(q_values)
-        std_q_value = np.std(q_values)
-        logger.info(
-            f"Episode {episode}: Avg Q-Value={avg_q_value:.4f}, Min Q-Value={min_q_value:.4f}, Max Q-Value={max_q_value:.4f}, Std Dev Q-Value={std_q_value:.4f}"
-        )
-        writer.add_scalar("Q-Values/Avg", avg_q_value, episode)
-        writer.add_scalar("Q-Values/Min", min_q_value, episode)
-        writer.add_scalar("Q-Values/Max", max_q_value, episode)
-        writer.add_scalar("Q-Values/StdDev", std_q_value, episode)
+def log_q_values(episode, q_values, interval=100):
+    if episode % interval != 0 or not q_values:
+        return
+    avg_q_value = np.mean(q_values)
+    min_q_value = np.min(q_values)
+    max_q_value = np.max(q_values)
+    std_q_value = np.std(q_values)
+    logger.info(
+        f"Episode {episode}: Avg Q-Value={avg_q_value:.4f}, Min Q-Value={min_q_value:.4f}, "
+        f"Max Q-Value={max_q_value:.4f}, Std Dev Q-Value={std_q_value:.4f}"
+    )
+    writer.add_scalar("Q-Values/Avg", avg_q_value, episode)
+    writer.add_scalar("Q-Values/Min", min_q_value, episode)
+    writer.add_scalar("Q-Values/Max", max_q_value, episode)
+    writer.add_scalar("Q-Values/StdDev", std_q_value, episode)
 
 
 def log_action_distribution(action_count, episode):
     """Log the distribution of actions taken by the agent."""
     total_actions = sum(action_count.values())
+    if total_actions == 0:
+        logger.info(f"Episode {episode}: No actions taken in this logging period.")
+        return
     action_dist = {k: v / total_actions for k, v in action_count.items()}
     logger.info(f"Episode {episode}: Action Distribution - {action_dist}")
     for action, freq in action_dist.items():
@@ -74,23 +78,6 @@ def log_episode(episode, episode_reward, steps, lines_cleared, epsilon, avg_loss
     writer.add_scalar("Episode/Epsilon", epsilon, episode)
 
 
-def log_q_values(episode, q_values, interval=100):
-    if episode % interval != 0 or not q_values:
-        return
-    avg_q_value = np.mean(q_values)
-    min_q_value = np.min(q_values)
-    max_q_value = np.max(q_values)
-    std_q_value = np.std(q_values)
-    logger.info(
-        f"Episode {episode}: Avg Q-Value={avg_q_value:.4f}, Min Q-Value={min_q_value:.4f}, "
-        f"Max Q-Value={max_q_value:.4f}, Std Dev Q-Value={std_q_value:.4f}"
-    )
-    writer.add_scalar("Q-Values/Avg", avg_q_value, episode)
-    writer.add_scalar("Q-Values/Min", min_q_value, episode)
-    writer.add_scalar("Q-Values/Max", max_q_value, episode)
-    writer.add_scalar("Q-Values/StdDev", std_q_value, episode)
-
-
 def aggregate_metrics(episode_rewards, episode_lengths, lines_cleared, interval=100):
     """Aggregate metrics across multiple episodes."""
     if len(episode_rewards) < interval:
@@ -111,7 +98,6 @@ def log_hardware_usage(episode):
     """Log system and hardware usage like RAM and VRAM."""
     ram_usage = psutil.virtual_memory().percent
     logger.info(f"System RAM usage: {ram_usage}%")
-    writer.add_scalar("Hardware/RAM Usage", ram_usage, episode)
 
     if torch.cuda.is_available():
         vram_usage = torch.cuda.memory_allocated() / (1024**3)
