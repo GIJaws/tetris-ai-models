@@ -10,12 +10,11 @@ import math
 import sys
 import os
 
-# Add the project root directory to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
 from models.cnn_lstm_dqn import CNNLSTMDQN
-from utils.helpful_utils import simplify_board
+from utils.helpful_utils import simplify_board, ACTION_COMBINATIONS
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -57,7 +56,6 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     next_state_batch = torch.cat(batch[3])
     done_batch = torch.tensor(batch[4], dtype=torch.bool, device=device)
 
-    # Model will convert bool to float32 internally
     state_action_values = policy_net(state_batch).gather(1, action_batch)
 
     with torch.no_grad():
@@ -74,16 +72,25 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     optimizer.step()
 
 
+def select_action(state, policy_net, steps_done, n_actions):
+    sample = random.random()
+    eps_threshold = EPS_END + (EPS_START - EPS_END) * np.exp(-1.0 * steps_done / EPS_DECAY)
+    if sample > eps_threshold:
+        with torch.no_grad():
+            return policy_net(state).max(1)[1].view(1, 1).item()
+    else:
+        return random.randrange(n_actions)
+
+
 def train():
     env = gym.make("SimpleTetris-v0")
     state, _ = env.reset()
     state = simplify_board(state)
-    # state shape is now (10, 40)
     input_shape = (state.shape[0], state.shape[1])
-    n_actions = env.action_space.n
+    n_actions = len(ACTION_COMBINATIONS)
 
-    policy_net = CNNLSTMDQN(input_shape, n_actions).to(device)
-    target_net = CNNLSTMDQN(input_shape, n_actions).to(device)
+    policy_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH).to(device)
+    target_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH).to(device)
     target_net.load_state_dict(policy_net.state_dict())
 
     optimizer = optim.Adam(policy_net.parameters(), lr=LEARNING_RATE)
@@ -97,13 +104,16 @@ def train():
         episode_reward = 0
 
         while True:
-            # Convert to torch tensor (float32)
             state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
-            # state_tensor shape: (1, sequence_length, 10, 40)
 
-            action = select_action(state_tensor, policy_net, steps_done, n_actions, device=device)
+            action = select_action(state_tensor, policy_net, steps_done, n_actions)
 
-            next_state, reward, terminated, truncated, _ = env.step([action.item()])
+            # action_combination is now a list of valid action indices
+            action_combination = ACTION_COMBINATIONS[action]
+
+            # Pass the list directly without wrapping it in another list
+            next_state, reward, terminated, truncated, _ = env.step(action_combination)
+
             next_state = simplify_board(next_state)
             done = terminated or truncated
             episode_reward += reward
@@ -111,8 +121,13 @@ def train():
             state_deque.append(next_state)
             next_state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
 
-            # Store float tensors in memory
-            memory.push(state_tensor, action, reward, next_state_tensor, done)
+            memory.push(
+                state_tensor,
+                torch.tensor([[action]], device=device, dtype=torch.long),
+                reward,
+                next_state_tensor,
+                done,
+            )
 
             optimize_model(memory, policy_net, target_net, optimizer)
 
@@ -128,16 +143,6 @@ def train():
 
     torch.save(policy_net.state_dict(), "cnn_lstm_dqn.pth")
     env.close()
-
-
-def select_action(state, policy_net, steps_done, n_actions, device):
-    sample = random.random()
-    eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1.0 * steps_done / EPS_DECAY)
-    if sample > eps_threshold:
-        with torch.no_grad():
-            return policy_net(state).max(1)[1].view(1, 1)
-    else:
-        return torch.tensor([[random.randrange(n_actions)]], device=device, dtype=torch.long)
 
 
 if __name__ == "__main__":
