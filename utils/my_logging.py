@@ -58,20 +58,39 @@ def log_loss(loss, episode):
     writer.add_scalar("Loss/Training", loss, episode)
 
 
-def log_episode(episode, episode_reward, steps, lines_cleared, epsilon, q_values, interval=10):
+def log_episode(episode, episode_reward, steps, lines_cleared, epsilon, q_values, avg_loss, interval=10):
     """Log episode summary."""
     if episode % interval != 0:
         return
     avg_q_value = sum(q_values) / len(q_values) if q_values else 0.0
+
     logger.info(
-        f"Episode {episode}: Reward={episode_reward}, Steps={steps}, Lines Cleared={lines_cleared}, "
-        f"Epsilon={epsilon:.4f}, Avg Q-Value={avg_q_value:.4f}"
+        f"Episode {episode}: Reward={episode_reward:.2f}, Steps={steps}, Lines Cleared={lines_cleared}, "
+        f"Epsilon={epsilon:.4f}, Avg Loss={avg_loss:.6f}"
     )
+
     writer.add_scalar("Episode/Reward", episode_reward, episode)
     writer.add_scalar("Episode/Steps", steps, episode)
     writer.add_scalar("Episode/Lines Cleared", lines_cleared, episode)
     writer.add_scalar("Episode/Epsilon", epsilon, episode)
     writer.add_scalar("Episode/Avg Q-Value", avg_q_value, episode)
+
+
+def log_q_values(episode, q_values, interval=100):
+    if episode % interval != 0 or not q_values:
+        return
+    avg_q_value = np.mean(q_values)
+    min_q_value = np.min(q_values)
+    max_q_value = np.max(q_values)
+    std_q_value = np.std(q_values)
+    logger.info(
+        f"Episode {episode}: Avg Q-Value={avg_q_value:.4f}, Min Q-Value={min_q_value:.4f}, "
+        f"Max Q-Value={max_q_value:.4f}, Std Dev Q-Value={std_q_value:.4f}"
+    )
+    writer.add_scalar("Q-Values/Avg", avg_q_value, episode)
+    writer.add_scalar("Q-Values/Min", min_q_value, episode)
+    writer.add_scalar("Q-Values/Max", max_q_value, episode)
+    writer.add_scalar("Q-Values/StdDev", std_q_value, episode)
 
 
 def aggregate_metrics(episode_rewards, episode_lengths, lines_cleared, interval=100):

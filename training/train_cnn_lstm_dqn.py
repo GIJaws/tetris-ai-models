@@ -18,7 +18,6 @@ from utils.helpful_utils import simplify_board, ACTION_COMBINATIONS
 from utils.my_logging import (
     log_episode,
     log_q_values,
-    log_reward_components,
     log_action_distribution,
     log_loss,
     log_hardware_usage,
@@ -26,8 +25,7 @@ from utils.my_logging import (
     close_logging,
 )
 
-# Enhance logging by adding action distribution and loss tracking
-action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Hyperparameters
@@ -92,14 +90,13 @@ def optimize_model(memory, policy_net, target_net, optimizer, episode):
     # Compute Huber loss
     loss = F.smooth_l1_loss(state_action_values.squeeze(), expected_state_action_values)
 
-    # Log the loss
-    log_loss(loss.item(), episode)
-
     # Optimize the model
     optimizer.zero_grad()
     loss.backward()
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
+
+    return loss.item()
 
 
 def select_action(state, policy_net, steps_done, n_actions):
@@ -132,15 +129,14 @@ def train():
     optimizer = optim.Adam(policy_net.parameters(), lr=LEARNING_RATE, weight_decay=1e-5)
     memory = ReplayMemory(MEMORY_SIZE)
 
-    steps_done = 0
-
     # Metrics tracking
-    episode_rewards = []
-    episode_lengths = []
-    lines_cleared_list = []
+    steps_done = 0
+    total_loss = 0
+    loss_count = 0
     episode_q_values = []
-    reward_components = {"lines_cleared": 0, "max_height": 0, "holes": 0, "bumpiness": 0, "game_over": 0}
 
+    # Enhance logging by adding action distribution and loss tracking
+    action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
     try:
         for episode in range(1, NUM_EPISODES + 1):
             state, _ = env.reset()
@@ -164,8 +160,7 @@ def train():
                 lines_cleared += info.get("lines_cleared", 0)
 
                 # Calculate and log reward components
-                reward = calculate_reward(next_state_simple, lines_cleared, done, state)
-                log_reward_components(episode, reward)
+                reward = calculate_reward(next_state_simple, lines_cleared, done)
 
                 episode_reward += reward
                 # Inside the training loop
@@ -189,7 +184,7 @@ def train():
                     done,
                 )
 
-                optimize_model(memory, policy_net, target_net, optimizer, episode)
+                loss = optimize_model(memory, policy_net, target_net, optimizer, episode)
 
                 steps_done += 1
                 episode_steps += 1
@@ -198,19 +193,32 @@ def train():
                     break
 
             # Log hardware usage and update target network periodically...
-            log_hardware_usage(episode)
+            if episode % HARDWARE_LOG_INTERVAL == 0:
+                log_hardware_usage(episode)
 
             if episode % TARGET_UPDATE == 0:
                 target_net.load_state_dict(policy_net.state_dict())
 
-            # Log episode stats
-            log_episode(episode, episode_reward, episode_steps, lines_cleared, eps_threshold, episode_q_values)
-            log_q_values(episode, episode_q_values)
+            # Log episode stats and other metrics less frequently
+            if episode % EPISODE_LOG_INTERVAL == 0:
+                avg_loss = total_loss / loss_count if loss_count > 0 else 0
+                log_episode(
+                    episode,
+                    episode_reward,
+                    episode_steps,
+                    lines_cleared,
+                    eps_threshold,
+                    avg_loss,
+                    interval=EPISODE_LOG_INTERVAL,
+                )
+                total_loss = 0
+                loss_count = 0
 
-            # Log the action distribution
             if episode % METRICS_AGGREGATE_INTERVAL == 0:
                 log_action_distribution(action_count, episode)
+                log_q_values(episode, episode_q_values, interval=METRICS_AGGREGATE_INTERVAL)
                 action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
+                episode_q_values = []
 
             if episode % SAVE_MODEL_INTERVAL == 0:
                 # Save the trained model every SAVE_MODEL_INTERVAL
@@ -221,7 +229,7 @@ def train():
         close_logging()
 
 
-def calculate_reward(board, lines_cleared, game_over, last_board):
+def calculate_reward(board, lines_cleared, game_over):
     reward = 0
 
     # Reward for each line cleared
