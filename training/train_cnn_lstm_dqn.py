@@ -42,8 +42,7 @@ SEQUENCE_LENGTH = 4
 EPISODE_LOG_INTERVAL = 5
 METRICS_AGGREGATE_INTERVAL = 10
 HARDWARE_LOG_INTERVAL = 10
-SAVE_MODEL_INTERVAL = 50
-# BATCH_LOG_THRESHOLD = 100.0  # Adjust as needed
+SAVE_MODEL_INTERVAL = 100
 
 
 class ReplayMemory:
@@ -103,9 +102,6 @@ def optimize_model(memory, policy_net, target_net, optimizer, episode):
             total_norm += param_norm.item() ** 2
     total_norm = total_norm**0.5
 
-    # Conditional logging based on loss threshold
-    # log_batch(loss.item(), total_norm, threshold=BATCH_LOG_THRESHOLD, episode=episode)
-
 
 def select_action(state, policy_net, steps_done, n_actions):
     sample = random.random()
@@ -143,8 +139,6 @@ def train():
     episode_rewards = []
     episode_lengths = []
     lines_cleared_list = []
-    q_values_list = []
-    loss_list = []
     try:
         for episode in range(1, NUM_EPISODES + 1):
             state, _ = env.reset()
@@ -233,12 +227,12 @@ def train():
                 aggregate_metrics(
                     episode_rewards, episode_lengths, lines_cleared_list, interval=METRICS_AGGREGATE_INTERVAL
                 )
-            if episode % SAVE_MODEL_INTERVAL:
+            if episode % SAVE_MODEL_INTERVAL == 0:
                 # Save the trained model every SAVE_MODEL_INTERVAL
-                torch.save(policy_net.state_dict(), f"cnn_lstm_dqn_episode_{episode}.pth")
+                torch.save(policy_net.state_dict(), f"outputs/cnn_lstm_dqn_episode_{episode}.pth")
     finally:
         # Save the trained model
-        torch.save(policy_net.state_dict(), "cnn_lstm_dqn.pth")
+        torch.save(policy_net.state_dict(), "outputs/cnn_lstm_dqn.pth")
         env.close()
 
         # Close TensorBoard writer
