@@ -9,8 +9,8 @@ import os
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
-from models.cnn_lstm_dqn import CNNLSTMDQN, ACTION_COMBINATIONS
-from utils.helpful_utils import simplify_board
+from models.cnn_lstm_dqn import CNNLSTMDQN
+from utils.helpful_utils import simplify_board, ACTION_COMBINATIONS
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 SEQUENCE_LENGTH = 4

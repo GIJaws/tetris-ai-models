@@ -97,6 +97,7 @@ def train():
     memory = ReplayMemory(MEMORY_SIZE)
 
     steps_done = 0
+    prev_lines = 0
     for episode in range(NUM_EPISODES):
         state, _ = env.reset()
         state = simplify_board(state)
@@ -118,8 +119,9 @@ def train():
             next_state_simple = simplify_board(next_state)
             done = terminated or truncated
 
+            prev_lines -= info["lines_cleared"]
             # Calculate reward using the improved function
-            reward = calculate_reward(next_state_simple, info["lines_cleared"], done, last_state)
+            reward = calculate_reward(next_state_simple, prev_lines, done, last_state)
 
             episode_reward += reward
 
