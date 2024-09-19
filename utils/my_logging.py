@@ -58,11 +58,10 @@ def log_loss(loss, episode):
     writer.add_scalar("Loss/Training", loss, episode)
 
 
-def log_episode(episode, episode_reward, steps, lines_cleared, epsilon, q_values, avg_loss, interval=10):
+def log_episode(episode, episode_reward, steps, lines_cleared, epsilon, avg_loss, interval=10):
     """Log episode summary."""
     if episode % interval != 0:
         return
-    avg_q_value = sum(q_values) / len(q_values) if q_values else 0.0
 
     logger.info(
         f"Episode {episode}: Reward={episode_reward:.2f}, Steps={steps}, Lines Cleared={lines_cleared}, "
@@ -73,7 +72,6 @@ def log_episode(episode, episode_reward, steps, lines_cleared, epsilon, q_values
     writer.add_scalar("Episode/Steps", steps, episode)
     writer.add_scalar("Episode/Lines Cleared", lines_cleared, episode)
     writer.add_scalar("Episode/Epsilon", epsilon, episode)
-    writer.add_scalar("Episode/Avg Q-Value", avg_q_value, episode)
 
 
 def log_q_values(episode, q_values, interval=100):
