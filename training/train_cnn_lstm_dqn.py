@@ -31,7 +31,7 @@ BATCH_SIZE = 32
 GAMMA = 0.9999
 EPS_START = 1.0
 EPS_END = 0.01
-EPS_DECAY = 1000000  # Increased for smoother decay
+EPS_DECAY = 500000
 TARGET_UPDATE = 100
 MEMORY_SIZE = 100000
 LEARNING_RATE = 1e-5
@@ -238,64 +238,46 @@ def train():
         close_logging()
 
 
-# import logging
-
-# # Assuming logger is set up somewhere in your project
-# logger = logging.getLogger("tetris_ai_training")
-
-
 def calculate_reward(board, lines_cleared, game_over, last_board):
-    if isinstance(board, torch.Tensor):
-        board = board.squeeze().cpu().numpy()
-    if isinstance(last_board, torch.Tensor):
-        last_board = last_board.squeeze().cpu().numpy()
-
-    # Ensure we're working with a 2D array
-    if board.ndim == 3:
-        board = np.any(board != 0, axis=2).astype(bool)
-    if last_board.ndim == 3:
-        last_board = np.any(last_board != 0, axis=2).astype(bool)
-
     reward = 0
 
-    # Game Over Penalty
+    # Reward for each line cleared
+    reward += lines_cleared  # +1 per line cleared
+
+    # Bonus for clearing multiple lines at once
+    if lines_cleared >= 2:
+        reward += 1  # Additional +1 bonus
+
+    # Penalty for game over
     if game_over:
-        # logger.info("Game over. Applying game-over penalty: -100")
-        reward -= 100
-        return reward
+        reward -= 1  # Modest penalty
 
-    # Line Clear Reward
-    line_clear_reward = [0, 40, 100, 300, 1200]  # Standard Tetris scoring
-    reward_from_lines = line_clear_reward[lines_cleared]
-    # logger.info(f"Lines Cleared: {lines_cleared}, Line Clear Reward: {reward_from_lines}")
-    reward += reward_from_lines
-
-    # Height Calculation
+    # Calculate heights
     heights = np.array([board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in board.T])
     max_height = np.max(heights)
-    height_penalty = 0.5 * max_height
-    # logger.info(f"Max Height: {max_height}, Height Penalty: {height_penalty}")
-    reward -= height_penalty
 
-    # Holes Calculation
+    # Height Penalty
+    reward -= 0.01 * max_height
+
+    # Holes Penalty
     holes = 0
     for x in range(board.shape[1]):
         column = board[:, x].astype(bool)
         filled = np.where(column)[0]
         if filled.size > 0:
-            # Count empty cells below the first filled cell
             holes += np.sum(~column[filled[0] :])
-    holes_penalty = 0.7 * holes
-    # logger.info(f"Number of Holes: {holes}, Holes Penalty: {holes_penalty}")
-    reward -= holes_penalty
+    reward -= 0.1 * holes
 
-    # Bumpiness Calculation
+    # Bumpiness Penalty
     bumpiness = np.sum(np.abs(np.diff(heights)))
-    bumpiness_penalty = 0.2 * bumpiness
-    # logger.info(f"Bumpiness: {bumpiness}, Bumpiness Penalty: {bumpiness_penalty}")
-    reward -= bumpiness_penalty
+    reward -= 0.05 * bumpiness
 
-    # logger.info(f"Total Reward: {reward}")
+    # Reward for placing a piece
+    reward += 0.1
+
+    # Clip the reward to prevent extreme values
+    reward = np.clip(reward, -1, 1)
+
     return reward
 
 
