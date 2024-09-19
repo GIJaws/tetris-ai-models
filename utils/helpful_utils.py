@@ -66,5 +66,14 @@ def bitmask_to_actions(action_bitmask):
 
 
 def simplify_board(board):
+    """
+    Simplifies the board representation by converting it to a 2D binary array.
+
+    Args:
+        board (np.ndarray): The original board with shape (width, height, channels).
+
+    Returns:
+        np.ndarray: Simplified board with shape (width, height) as float32.
+    """
     # Assuming board shape is (10, 40, 3)
     return np.any(board != 0, axis=2).astype(np.float32)

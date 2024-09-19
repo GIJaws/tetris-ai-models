@@ -9,6 +9,7 @@ import random
 import math
 import sys
 import os
+import logging
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
@@ -16,28 +17,33 @@ sys.path.insert(0, project_root)
 from models.cnn_lstm_dqn import CNNLSTMDQN
 from utils.helpful_utils import simplify_board, ACTION_COMBINATIONS
 from utils.my_logging import (
-    log_hardware_usage,
-    log_hardware_to_tensorboard,
-    log_batch,
+    # log_batch,
     log_episode,
-    log_to_tensorboard,
+    log_hardware_usage,
     aggregate_metrics,
-    writer,
+    close_logging,
 )
-
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Hyperparameters
 BATCH_SIZE = 32
 GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
-EPS_DECAY = 10000
+EPS_DECAY = 1000000  # Increased for smoother decay
 TARGET_UPDATE = 1000
 MEMORY_SIZE = 100000
 LEARNING_RATE = 1e-4
 NUM_EPISODES = 10000
 SEQUENCE_LENGTH = 4
+
+# Logging intervals
+EPISODE_LOG_INTERVAL = 5
+METRICS_AGGREGATE_INTERVAL = 10
+HARDWARE_LOG_INTERVAL = 10
+SAVE_MODEL_INTERVAL = 50
+# BATCH_LOG_THRESHOLD = 100.0  # Adjust as needed
 
 
 class ReplayMemory:
@@ -57,25 +63,33 @@ class ReplayMemory:
 def optimize_model(memory, policy_net, target_net, optimizer, episode):
     if len(memory) < BATCH_SIZE:
         return
+
     transitions = memory.sample(BATCH_SIZE)
     batch = list(zip(*transitions))
 
-    state_batch = torch.cat(batch[0])
-    action_batch = torch.cat(batch[1])
-    reward_batch = torch.tensor(batch[2], dtype=torch.float32, device=device)
-    next_state_batch = torch.cat(batch[3])
-    done_batch = torch.tensor(batch[4], dtype=torch.bool, device=device)
+    state_batch = torch.cat(batch[0])  # Shape: [BATCH_SIZE, SEQ_LEN, H, W]
+    action_batch = torch.cat(batch[1])  # Shape: [BATCH_SIZE, 1]
+    reward_batch = torch.tensor(batch[2], dtype=torch.float32, device=device)  # Shape: [BATCH_SIZE]
+    next_state_batch = torch.cat(batch[3])  # Shape: [BATCH_SIZE, SEQ_LEN, H, W]
+    done_batch = torch.tensor(batch[4], dtype=torch.bool, device=device)  # Shape: [BATCH_SIZE]
 
+    # Compute Q(s_t, a)
     state_action_values = policy_net(state_batch).gather(1, action_batch)
 
+    # Compute V(s_{t+1}) for all next states.
     with torch.no_grad():
         next_state_values = torch.zeros(BATCH_SIZE, device=device)
-        next_state_values[~done_batch] = target_net(next_state_batch[~done_batch]).max(1)[0]
+        non_final_mask = ~done_batch
+        if non_final_mask.sum() > 0:
+            next_state_values[non_final_mask] = target_net(next_state_batch[non_final_mask]).max(1)[0]
 
+    # Compute the expected Q values
     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
-    loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+    # Compute Huber loss
+    loss = F.smooth_l1_loss(state_action_values.squeeze(), expected_state_action_values)
 
+    # Optimize the model
     optimizer.zero_grad()
     loss.backward()
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
@@ -84,136 +98,151 @@ def optimize_model(memory, policy_net, target_net, optimizer, episode):
     # Calculate gradient norm for logging
     total_norm = 0
     for p in policy_net.parameters():
-        param_norm = p.grad.data.norm(2)
-        total_norm += param_norm.item() ** 2
-    total_norm = total_norm ** (1.0 / 2)
+        if p.grad is not None:
+            param_norm = p.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+    total_norm = total_norm**0.5
 
-    if episode % TARGET_UPDATE == 0:
-        log_hardware_usage(episode, interval=100)  # Log hardware usage less frequently
-        log_hardware_to_tensorboard(episode, interval=100)  # TensorBoard log
+    # Conditional logging based on loss threshold
+    # log_batch(loss.item(), total_norm, threshold=BATCH_LOG_THRESHOLD, episode=episode)
 
 
 def select_action(state, policy_net, steps_done, n_actions):
     sample = random.random()
-    eps_threshold = EPS_END + (EPS_START - EPS_END) * np.exp(-1.0 * steps_done / EPS_DECAY)
+    eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1.0 * steps_done / EPS_DECAY)
     if sample > eps_threshold:
         with torch.no_grad():
-            return policy_net(state).max(1)[1].view(1, 1).item()
+            q_values = policy_net(state)
+            action = q_values.max(1)[1].view(1, 1).item()
+            avg_q = q_values.mean().item()
+        return action, eps_threshold, avg_q
     else:
-        return random.randrange(n_actions)
+        return random.randrange(n_actions), eps_threshold, 0.0
 
 
 def train():
-    env = gym.make("SimpleTetris-v0", render_mode=None)
+    env = gym.make("SimpleTetris-v0")
+    n_actions = len(ACTION_COMBINATIONS)
+
+    # Initialize networks
     state, _ = env.reset()
     state = simplify_board(state)
     input_shape = (state.shape[0], state.shape[1])
-    n_actions = len(ACTION_COMBINATIONS)
 
     policy_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH).to(device)
     target_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH).to(device)
     target_net.load_state_dict(policy_net.state_dict())
+    target_net.eval()
 
     optimizer = optim.Adam(policy_net.parameters(), lr=LEARNING_RATE)
     memory = ReplayMemory(MEMORY_SIZE)
 
     steps_done = 0
-    prev_lines = 0
 
-    # Lists to store metrics for aggregation
+    # Metrics tracking
     episode_rewards = []
     episode_lengths = []
     lines_cleared_list = []
+    q_values_list = []
+    loss_list = []
+    try:
+        for episode in range(1, NUM_EPISODES + 1):
+            state, _ = env.reset()
+            state = simplify_board(state)
+            state_deque = deque([state] * SEQUENCE_LENGTH, maxlen=SEQUENCE_LENGTH)
+            episode_reward = 0
+            episode_steps = 0
+            lines_cleared = 0
+            episode_q_values = []
 
-    for episode in range(1, NUM_EPISODES + 1):
-        state, _ = env.reset()
-        state = simplify_board(state)
-        last_state = state.copy()
-        state_deque = deque([state] * SEQUENCE_LENGTH, maxlen=SEQUENCE_LENGTH)
-        episode_reward = 0
-        episode_steps = 0
-        prev_lines_cleared = 0
-        total_lines_cleared = 0
-        while True:
-            state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
+            while True:
+                state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
 
-            action = select_action(state_tensor, policy_net, steps_done, n_actions)
+                action, eps_threshold, avg_q = select_action(state_tensor, policy_net, steps_done, n_actions)
 
-            # action_combination is now a list of valid action indices
-            action_combination = ACTION_COMBINATIONS[action]
+                # Execute action
+                action_combination = ACTION_COMBINATIONS.get(action, ["idle"])
+                next_state, reward, terminated, truncated, info = env.step(action_combination)
 
-            # Pass the list directly without wrapping it in another list
-            next_state, _, terminated, truncated, info = env.step(action_combination)
+                next_state_simple = simplify_board(next_state)
+                done = terminated or truncated
 
-            next_state_simple = simplify_board(next_state)
-            done = terminated or truncated
+                lines_cleared += info.get("lines_cleared", 0)
+                reward = calculate_reward(next_state_simple, lines_cleared, done, state)
 
-            # Calculate reward using the improved function
-            reward = calculate_reward(next_state_simple, info["lines_cleared"] - prev_lines_cleared, done, last_state)
-            prev_lines_cleared = info["lines_cleared"]
-            episode_reward += reward
+                episode_reward += reward
 
-            state_deque.append(next_state_simple)
-            next_state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
+                # Inside the training loop
+                with torch.no_grad():
+                    q_values = policy_net(state_tensor)
+                    action = q_values.max(1)[1].view(1, 1).item()
+                    episode_q_values.append(q_values.mean().item())
 
-            memory.push(
-                state_tensor,
-                torch.tensor([[action]], device=device, dtype=torch.long),
-                reward,
-                next_state_tensor,
-                done,
-            )
+                # Update state
+                state_deque.append(next_state_simple)
+                next_state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(
+                    0
+                )
 
-            optimize_model(memory, policy_net, target_net, optimizer, episode)
+                # Store transition in memory
+                memory.push(
+                    state_tensor,
+                    torch.tensor([[action]], device=device, dtype=torch.long),
+                    reward,
+                    next_state_tensor,
+                    done,
+                )
 
-            if done:
-                break
+                # Optimize the model
+                optimize_model(memory, policy_net, target_net, optimizer, episode)
 
-            last_state = state.copy()
-            state = next_state_simple
-            steps_done += 1
-            episode_steps += 1
-            total_lines_cleared = info["lines_cleared"]
+                steps_done += 1
+                episode_steps += 1
+                episode_q_values.append(avg_q)
 
-        # Store metrics for aggregation
-        episode_rewards.append(episode_reward)
-        episode_lengths.append(episode_steps)
-        lines_cleared_list.append(total_lines_cleared)
+                if done:
+                    break
 
-        # Log episode information at specified intervals
-        if episode % 10 == 0:
-            epsilon = EPS_END + (EPS_START - EPS_END) * np.exp(-1.0 * steps_done / EPS_DECAY)
-            log_episode(
-                episode,
-                episode_reward,
-                episode_steps,
-                total_lines_cleared,
-                epsilon,
-                q_values=[],  # Placeholder: Implement Q-value tracking if needed
-            )
-            log_to_tensorboard(
-                episode,
-                episode_reward,
-                episode_steps,
-                total_lines_cleared,
-                epsilon,
-                loss=0,  # Placeholder: Pass actual loss if tracked
-                q_values=[],  # Placeholder: Implement Q-value tracking if needed
-            )
+            # Log hardware usage once per episode
+            if episode % HARDWARE_LOG_INTERVAL == 0:
+                log_hardware_usage(episode)
 
-        # Aggregate and log metrics every 100 episodes
-        if episode % 100 == 0:
-            aggregate_metrics(episode_rewards, episode_lengths, lines_cleared_list, interval=100)
+            # Update target network
+            if episode % TARGET_UPDATE == 0:
+                target_net.load_state_dict(policy_net.state_dict())
 
-        # Update the target network at specified intervals
-        if episode % TARGET_UPDATE == 0:
-            target_net.load_state_dict(policy_net.state_dict())
-            log_hardware_usage(episode, interval=100)  # Log hardware usage less frequently
-            log_hardware_to_tensorboard(episode, interval=100)  # TensorBoard log
+            # Aggregate episode metrics
+            episode_rewards.append(episode_reward)
+            episode_lengths.append(episode_steps)
+            lines_cleared_list.append(lines_cleared)
+            # Loss tracking can be implemented here if desired
 
-    torch.save(policy_net.state_dict(), "cnn_lstm_dqn.pth")
-    env.close()
-    writer.close()  # Add this line
+            # Log episode information at specified intervals
+            if episode % EPISODE_LOG_INTERVAL == 0:
+                log_episode(
+                    episode,
+                    episode_reward,
+                    episode_steps,
+                    lines_cleared,
+                    eps_threshold,
+                    episode_q_values,
+                )
+
+            # Aggregate and log metrics every specified interval
+            if episode % METRICS_AGGREGATE_INTERVAL == 0:
+                aggregate_metrics(
+                    episode_rewards, episode_lengths, lines_cleared_list, interval=METRICS_AGGREGATE_INTERVAL
+                )
+            if episode % SAVE_MODEL_INTERVAL:
+                # Save the trained model every SAVE_MODEL_INTERVAL
+                torch.save(policy_net.state_dict(), f"cnn_lstm_dqn_episode_{episode}.pth")
+    finally:
+        # Save the trained model
+        torch.save(policy_net.state_dict(), "cnn_lstm_dqn.pth")
+        env.close()
+
+        # Close TensorBoard writer
+        close_logging()
 
 
 def calculate_reward(board, lines_cleared, game_over, last_board):
@@ -224,20 +253,20 @@ def calculate_reward(board, lines_cleared, game_over, last_board):
 
     # Ensure we're working with a 2D array
     if board.ndim == 3:
-        board = np.any(board != 0, axis=2).astype(np.bool_)
+        board = np.any(board != 0, axis=2).astype(bool)
     if last_board.ndim == 3:
-        last_board = np.any(last_board != 0, axis=2).astype(np.bool_)
+        last_board = np.any(last_board != 0, axis=2).astype(bool)
 
     reward = 0
 
     # Game Over Penalty
     if game_over:
-        reward += -100
-        # You can also return early if you prefer
-        return -100
+        reward -= 100
+        return reward
 
     # Line Clear Reward
     line_clear_reward = [0, 40, 100, 300, 1200]  # Standard Tetris scoring
+    lines_cleared = min(lines_cleared, len(line_clear_reward) - 1)
     reward += line_clear_reward[lines_cleared]
 
     # Height Calculation
@@ -245,26 +274,26 @@ def calculate_reward(board, lines_cleared, game_over, last_board):
 
     # Stack Height Penalty
     max_height = np.max(heights)
-    reward += -0.5 * max_height
+    reward -= 0.5 * max_height
 
     # Holes Calculation
     holes = 0
     for x in range(board.shape[1]):
-        column = board[:, x].astype(np.bool_)  # Ensure the column is boolean
+        column = board[:, x].astype(bool)
         filled = np.where(column)[0]
         if filled.size > 0:
             # Count empty cells below the first filled cell
             holes += np.sum(~column[filled[0] :])
 
-    reward += -0.7 * holes
+    reward -= 0.7 * holes
 
     # Bumpiness Calculation
     bumpiness = np.sum(np.abs(np.diff(heights)))
-    reward += -0.2 * bumpiness
+    reward -= 0.2 * bumpiness
 
     # Idling Penalty
     if np.array_equal(board, last_board):
-        reward += -0.1  # Small penalty for idling
+        reward -= 0.1  # Small penalty for idling
 
     return reward
 
