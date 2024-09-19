@@ -28,15 +28,15 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Hyperparameters
 BATCH_SIZE = 32
-GAMMA = 0.99
+GAMMA = 0.9999
 EPS_START = 1.0
 EPS_END = 0.01
 EPS_DECAY = 1000000  # Increased for smoother decay
-TARGET_UPDATE = 1000
+TARGET_UPDATE = 100
 MEMORY_SIZE = 100000
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-5
 NUM_EPISODES = 10000
-SEQUENCE_LENGTH = 4
+SEQUENCE_LENGTH = 25
 
 # Logging intervals
 EPISODE_LOG_INTERVAL = 5
@@ -117,7 +117,7 @@ def select_action(state, policy_net, steps_done, n_actions):
 
 
 def train():
-    env = gym.make("SimpleTetris-v0")
+    env = gym.make("SimpleTetris-v0", render_mode=None)
     n_actions = len(ACTION_COMBINATIONS)
 
     # Initialize networks
@@ -130,7 +130,7 @@ def train():
     target_net.load_state_dict(policy_net.state_dict())
     target_net.eval()
 
-    optimizer = optim.Adam(policy_net.parameters(), lr=LEARNING_RATE)
+    optimizer = optim.Adam(policy_net.parameters(), lr=LEARNING_RATE, weight_decay=1e-5)
     memory = ReplayMemory(MEMORY_SIZE)
 
     steps_done = 0
@@ -165,7 +165,6 @@ def train():
                 reward = calculate_reward(next_state_simple, lines_cleared, done, state)
 
                 episode_reward += reward
-
                 # Inside the training loop
                 with torch.no_grad():
                     q_values = policy_net(state_tensor)
@@ -229,14 +228,20 @@ def train():
                 )
             if episode % SAVE_MODEL_INTERVAL == 0:
                 # Save the trained model every SAVE_MODEL_INTERVAL
-                torch.save(policy_net.state_dict(), f"outputs/cnn_lstm_dqn_episode_{episode}.pth")
+                torch.save(policy_net.state_dict(), f"outputs/cnn_lstm_dqn_episode_{episode}_v2.pth")
     finally:
         # Save the trained model
-        torch.save(policy_net.state_dict(), "outputs/cnn_lstm_dqn.pth")
+        torch.save(policy_net.state_dict(), "outputs/cnn_lstm_dqn_v2.pth")
         env.close()
 
         # Close TensorBoard writer
         close_logging()
+
+
+# import logging
+
+# # Assuming logger is set up somewhere in your project
+# logger = logging.getLogger("tetris_ai_training")
 
 
 def calculate_reward(board, lines_cleared, game_over, last_board):
@@ -255,20 +260,22 @@ def calculate_reward(board, lines_cleared, game_over, last_board):
 
     # Game Over Penalty
     if game_over:
+        # logger.info("Game over. Applying game-over penalty: -100")
         reward -= 100
         return reward
 
     # Line Clear Reward
     line_clear_reward = [0, 40, 100, 300, 1200]  # Standard Tetris scoring
-    lines_cleared = min(lines_cleared, len(line_clear_reward) - 1)
-    reward += line_clear_reward[lines_cleared]
+    reward_from_lines = line_clear_reward[lines_cleared]
+    # logger.info(f"Lines Cleared: {lines_cleared}, Line Clear Reward: {reward_from_lines}")
+    reward += reward_from_lines
 
     # Height Calculation
     heights = np.array([board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in board.T])
-
-    # Stack Height Penalty
     max_height = np.max(heights)
-    reward -= 0.5 * max_height
+    height_penalty = 0.5 * max_height
+    # logger.info(f"Max Height: {max_height}, Height Penalty: {height_penalty}")
+    reward -= height_penalty
 
     # Holes Calculation
     holes = 0
@@ -278,17 +285,17 @@ def calculate_reward(board, lines_cleared, game_over, last_board):
         if filled.size > 0:
             # Count empty cells below the first filled cell
             holes += np.sum(~column[filled[0] :])
-
-    reward -= 0.7 * holes
+    holes_penalty = 0.7 * holes
+    # logger.info(f"Number of Holes: {holes}, Holes Penalty: {holes_penalty}")
+    reward -= holes_penalty
 
     # Bumpiness Calculation
     bumpiness = np.sum(np.abs(np.diff(heights)))
-    reward -= 0.2 * bumpiness
+    bumpiness_penalty = 0.2 * bumpiness
+    # logger.info(f"Bumpiness: {bumpiness}, Bumpiness Penalty: {bumpiness_penalty}")
+    reward -= bumpiness_penalty
 
-    # Idling Penalty
-    if np.array_equal(board, last_board):
-        reward -= 0.1  # Small penalty for idling
-
+    # logger.info(f"Total Reward: {reward}")
     return reward
 
 
