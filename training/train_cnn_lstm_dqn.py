@@ -15,7 +15,16 @@ sys.path.insert(0, project_root)
 
 from models.cnn_lstm_dqn import CNNLSTMDQN
 from utils.helpful_utils import simplify_board, ACTION_COMBINATIONS
-from utils.my_logging import log_batch, log_hardware_usage
+from utils.my_logging import (
+    log_hardware_usage,
+    log_hardware_to_tensorboard,
+    log_batch,
+    log_episode,
+    log_to_tensorboard,
+    aggregate_metrics,
+    writer,
+)
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -45,7 +54,7 @@ class ReplayMemory:
         return len(self.memory)
 
 
-def optimize_model(memory, policy_net, target_net, optimizer):
+def optimize_model(memory, policy_net, target_net, optimizer, episode):
     if len(memory) < BATCH_SIZE:
         return
     transitions = memory.sample(BATCH_SIZE)
@@ -79,11 +88,9 @@ def optimize_model(memory, policy_net, target_net, optimizer):
         total_norm += param_norm.item() ** 2
     total_norm = total_norm ** (1.0 / 2)
 
-    # Log batch-related info
-    log_batch(loss.item(), total_norm)
-
-    # Log hardware usage (VRAM, RAM)
-    log_hardware_usage()
+    if episode % TARGET_UPDATE == 0:
+        log_hardware_usage(episode, interval=100)  # Log hardware usage less frequently
+        log_hardware_to_tensorboard(episode, interval=100)  # TensorBoard log
 
 
 def select_action(state, policy_net, steps_done, n_actions):
@@ -112,13 +119,21 @@ def train():
 
     steps_done = 0
     prev_lines = 0
-    for episode in range(NUM_EPISODES):
+
+    # Lists to store metrics for aggregation
+    episode_rewards = []
+    episode_lengths = []
+    lines_cleared_list = []
+
+    for episode in range(1, NUM_EPISODES + 1):
         state, _ = env.reset()
         state = simplify_board(state)
         last_state = state.copy()
         state_deque = deque([state] * SEQUENCE_LENGTH, maxlen=SEQUENCE_LENGTH)
         episode_reward = 0
-
+        episode_steps = 0
+        prev_lines_cleared = 0
+        total_lines_cleared = 0
         while True:
             state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
 
@@ -133,10 +148,9 @@ def train():
             next_state_simple = simplify_board(next_state)
             done = terminated or truncated
 
-            prev_lines -= info["lines_cleared"]
             # Calculate reward using the improved function
-            reward = calculate_reward(next_state_simple, prev_lines, done, last_state)
-
+            reward = calculate_reward(next_state_simple, info["lines_cleared"] - prev_lines_cleared, done, last_state)
+            prev_lines_cleared = info["lines_cleared"]
             episode_reward += reward
 
             state_deque.append(next_state_simple)
@@ -150,7 +164,7 @@ def train():
                 done,
             )
 
-            optimize_model(memory, policy_net, target_net, optimizer)
+            optimize_model(memory, policy_net, target_net, optimizer, episode)
 
             if done:
                 break
@@ -158,14 +172,48 @@ def train():
             last_state = state.copy()
             state = next_state_simple
             steps_done += 1
+            episode_steps += 1
+            total_lines_cleared = info["lines_cleared"]
 
+        # Store metrics for aggregation
+        episode_rewards.append(episode_reward)
+        episode_lengths.append(episode_steps)
+        lines_cleared_list.append(total_lines_cleared)
+
+        # Log episode information at specified intervals
+        if episode % 10 == 0:
+            epsilon = EPS_END + (EPS_START - EPS_END) * np.exp(-1.0 * steps_done / EPS_DECAY)
+            log_episode(
+                episode,
+                episode_reward,
+                episode_steps,
+                total_lines_cleared,
+                epsilon,
+                q_values=[],  # Placeholder: Implement Q-value tracking if needed
+            )
+            log_to_tensorboard(
+                episode,
+                episode_reward,
+                episode_steps,
+                total_lines_cleared,
+                epsilon,
+                loss=0,  # Placeholder: Pass actual loss if tracked
+                q_values=[],  # Placeholder: Implement Q-value tracking if needed
+            )
+
+        # Aggregate and log metrics every 100 episodes
+        if episode % 100 == 0:
+            aggregate_metrics(episode_rewards, episode_lengths, lines_cleared_list, interval=100)
+
+        # Update the target network at specified intervals
         if episode % TARGET_UPDATE == 0:
             target_net.load_state_dict(policy_net.state_dict())
-
-        print(f"Episode {episode}, Reward: {episode_reward}")
+            log_hardware_usage(episode, interval=100)  # Log hardware usage less frequently
+            log_hardware_to_tensorboard(episode, interval=100)  # TensorBoard log
 
     torch.save(policy_net.state_dict(), "cnn_lstm_dqn.pth")
     env.close()
+    writer.close()  # Add this line
 
 
 def calculate_reward(board, lines_cleared, game_over, last_board):
