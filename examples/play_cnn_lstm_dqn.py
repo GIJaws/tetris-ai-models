@@ -29,7 +29,7 @@ def play():
     n_actions = len(ACTION_COMBINATIONS)
 
     model = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH).to(device)
-    model_path = "cnn_lstm_dqn.pth"
+    model_path = r"outputs\2nd run\cnn_lstm_dqn_v2.pth"
 
     if not os.path.exists(model_path):
         print(f"Model file {model_path} not found.")
