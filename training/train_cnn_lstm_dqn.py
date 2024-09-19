@@ -15,6 +15,7 @@ sys.path.insert(0, project_root)
 
 from models.cnn_lstm_dqn import CNNLSTMDQN
 from utils.helpful_utils import simplify_board, ACTION_COMBINATIONS
+from utils.my_logging import log_batch, log_hardware_usage
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -71,6 +72,19 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
 
+    # Calculate gradient norm for logging
+    total_norm = 0
+    for p in policy_net.parameters():
+        param_norm = p.grad.data.norm(2)
+        total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** (1.0 / 2)
+
+    # Log batch-related info
+    log_batch(loss.item(), total_norm)
+
+    # Log hardware usage (VRAM, RAM)
+    log_hardware_usage()
+
 
 def select_action(state, policy_net, steps_done, n_actions):
     sample = random.random()
@@ -83,7 +97,7 @@ def select_action(state, policy_net, steps_done, n_actions):
 
 
 def train():
-    env = gym.make("SimpleTetris-v0")
+    env = gym.make("SimpleTetris-v0", render_mode=None)
     state, _ = env.reset()
     state = simplify_board(state)
     input_shape = (state.shape[0], state.shape[1])
