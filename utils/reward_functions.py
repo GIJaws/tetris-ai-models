@@ -1,3 +1,4 @@
+# tetris-ai-models\utils\reward_functions.py
 import numpy as np
 
 
@@ -6,41 +7,50 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
     Calculate the reward based on the history of board states and lines cleared.
 
     Args:
-        board_history (deque): History of board states (each as a 2D numpy array).
+        board_history (deque): History of board states (each as 2D numpy arrays).
         lines_cleared_history (deque): History of lines cleared per step.
         game_over (bool): Flag indicating if the game has ended.
         time_count (int): Number of time steps survived.
         window_size (int): Number of recent states to consider for rolling comparison.
 
     Returns:
-        float: Calculated reward.
+        float: Total reward.
+        dict: Dictionary of individual reward components.
     """
-    reward = 0
+    # Initialize reward components
+    survival_reward = 0
+    lines_cleared_reward = 0
+    holes_reward = 0
+    max_height_reward = 0
+    bumpiness_reward = 0
+    game_over_penalty = 0
 
     # 1. Survival Reward
     survival_reward = min(100, time_count * 0.1)  # Capped to prevent excessive rewards
-    reward += survival_reward
 
     # 2. Reward for Lines Cleared
     # Calculate total lines cleared in the current step
     total_lines_cleared = sum(lines_cleared_history)
-    reward += total_lines_cleared * 100  # Base reward per line
+    lines_cleared_reward = total_lines_cleared * 100  # Base reward per line
     if total_lines_cleared > 1:
-        reward += (total_lines_cleared - 1) * 50  # Bonus for multiple lines
+        lines_cleared_reward += (total_lines_cleared - 1) * 50  # Bonus for multiple lines
 
-    # Define weights (these can be tuned)
+    # Weights for the metrics
     weights = {
         "holes": -10.0,  # Penalize increase in holes
         "max_height": -5.0,  # Penalize increase in max height
         "bumpiness": -1.0,  # Penalize increase in bumpiness
     }
 
-    # 3. Rolling Board Comparison
-    recent_boards = list(board_history)[-window_size:]
-    cumulative_metrics_diff = {"holes": 0, "max_height": 0, "bumpiness": 0}
+    # Decay rate for older states
+    decay_rate = 0.8  # Adjust between 0 and 1; lower means faster decay
 
-    # Iterate through the window to accumulate differences
-    for i in range(1, min(window_size, len(recent_boards))):
+    # 3. Rolling Board Comparison with Decaying Weights
+    recent_boards = list(board_history)[-window_size:]
+    cumulative_metrics_diff = {"holes": 0.0, "max_height": 0.0, "bumpiness": 0.0}
+
+    n = len(recent_boards)
+    for i in range(1, n):
         prev_board = recent_boards[i - 1]
         current_board = recent_boards[i]
 
@@ -48,27 +58,64 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
         current_metrics = calculate_board_metrics(current_board)
 
         # Calculate differences
-        cumulative_metrics_diff["holes"] += current_metrics["holes"] - prev_metrics["holes"]
-        cumulative_metrics_diff["bumpiness"] += current_metrics["bumpiness"] - prev_metrics["bumpiness"]
+        diff = {metric: current_metrics[metric] - prev_metrics[metric] for metric in weights.keys()}
 
-        # Penalize only if height exceeds a certain threshold (e.g., near the top)
-        if current_metrics["max_height"] > 15:  # Assuming board height is 20
-            cumulative_metrics_diff["max_height"] += current_metrics["max_height"] - prev_metrics["max_height"]
+        # Apply decay weight (more recent differences have higher weight)
+        decay_weight = decay_rate ** (i - 1)
 
-    # Apply penalties or rewards
-    for metric, diff in cumulative_metrics_diff.items():
-        if diff < 0:
+        # Accumulate weighted differences
+        for metric in weights.keys():
+            cumulative_metrics_diff[metric] += decay_weight * diff[metric]
+
+    # Apply penalties or rewards per metric with caps
+    max_component_reward = 50  # Adjust as needed to prevent stacking
+    for metric, total_diff in cumulative_metrics_diff.items():
+        if total_diff < 0:
             # Improvement: decrease in metric
-            reward += abs(diff) * abs(weights[metric]) * 0.5  # Reward half the improvement
-        elif diff > 0:
+            component_reward = abs(total_diff) * abs(weights[metric]) * 0.5  # Reward half the improvement
+        elif total_diff > 0:
             # Deterioration: increase in metric
-            reward += diff * weights[metric]  # Apply penalty
+            component_reward = total_diff * weights[metric]  # Apply penalty
+        else:
+            component_reward = 0
 
-    # 5. Penalty for Game Over
+        # Cap the contribution from this component
+        component_reward = np.clip(component_reward, -max_component_reward, max_component_reward)
+
+        # Add to component rewards
+        if metric == "holes":
+            holes_reward += component_reward
+        elif metric == "max_height":
+            max_height_reward += component_reward
+        elif metric == "bumpiness":
+            bumpiness_reward += component_reward
+
+    # 4. Penalty for Game Over
     if game_over:
-        reward -= 500  # Significant penalty for losing the game
+        game_over_penalty = -500  # Significant penalty for losing the game
 
-    return reward
+    # Total reward
+    total_reward = (
+        survival_reward
+        + lines_cleared_reward
+        + holes_reward
+        + max_height_reward
+        + bumpiness_reward
+        + game_over_penalty
+    )
+
+    # Collect reward components in a dictionary
+    reward_components = {
+        "survival_reward": survival_reward,
+        "lines_cleared_reward": lines_cleared_reward,
+        "holes_reward": holes_reward,
+        "max_height_reward": max_height_reward,
+        "bumpiness_reward": bumpiness_reward,
+        "game_over_penalty": game_over_penalty,
+        "total_reward": total_reward,
+    }
+
+    return total_reward, reward_components
 
 
 def calculate_board_metrics(board):
@@ -76,14 +123,18 @@ def calculate_board_metrics(board):
     Calculate key metrics from the board state.
 
     Args:
-        board (np.ndarray): Simplified board with shape (width, height).
+        board (np.ndarray): Simplified board with shape (height, width).
 
     Returns:
         dict: Metrics including max height, number of holes, and bumpiness.
     """
     heights = np.array([board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in board.T])
     max_height = np.max(heights)
-    holes = sum(np.sum(~board[:, x].astype(bool)[np.argmax(board[:, x] != 0) :]) for x in range(board.shape[1]))
+    holes = sum(
+        np.sum(~board[np.argmax(board[:, x] != 0) :, x].astype(bool))
+        for x in range(board.shape[1])
+        if np.any(board[:, x])
+    )
     bumpiness = np.sum(np.abs(np.diff(heights)))
 
     return {"max_height": max_height, "holes": holes, "bumpiness": bumpiness}

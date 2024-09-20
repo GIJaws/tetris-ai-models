@@ -42,7 +42,9 @@ class ResizeVideoOutput(gym.Wrapper):
         self.lines_cleared_history.append(lines_cleared)
 
         # Calculate custom reward
-        reward = calculate_reward(self.board_history, self.lines_cleared_history, done, self.time_count)
+        reward, reward_components = calculate_reward(
+            self.board_history, self.lines_cleared_history, done, self.time_count
+        )
         self.total_reward += reward
 
         return obs, reward, terminated, truncated, info
@@ -229,6 +231,7 @@ class LoggingManager:
         epsilon: float,
         loss: Optional[float],
         q_values: List[float],
+        reward_components: Dict[str, float],
     ):
         if self.writer is None:
             return
@@ -253,6 +256,16 @@ class LoggingManager:
             self.writer.add_scalar("Q-Values/Min", min_q, episode)
             self.writer.add_scalar("Q-Values/Max", max_q, episode)
             self.writer.add_scalar("Q-Values/StdDev", std_q, episode)
+
+        # Log reward components
+        for component_name, value in reward_components.items():
+            self.writer.add_scalar(f"Reward Components/{component_name}", value, episode)
+
+    # Add a method to log reward components to file
+    def log_reward_components_file(self, reward_components: Dict[str, float], episode: int):
+        component_strings = [f"{name}={value:.2f}" for name, value in reward_components.items()]
+        components_log = ", ".join(component_strings)
+        self.logger.info(f"Episode {episode}: Reward Components - {components_log}")
 
     def log_action_distribution_tensorboard(self, action_count: Dict[int, int], episode: int):
         if self.writer is None:
@@ -288,6 +301,7 @@ class LoggingManager:
         loss: Optional[float],
         q_values: List[float],
         action_count: Dict[int, int],
+        reward_components: Dict[str, float],
         log_interval=10,
     ):
         # Log to files periodically
@@ -301,9 +315,13 @@ class LoggingManager:
             self.log_loss_file(loss, episode)
         if episode % log_interval == 0:
             self.log_hardware_usage_file(episode)
+        if episode % log_interval == 0:
+            self.log_reward_components_file(reward_components, episode)  # Log reward components to file
 
         # Log to TensorBoard every episode
-        self.log_to_tensorboard_every_episode(episode, episode_reward, steps, lines_cleared, epsilon, loss, q_values)
+        self.log_to_tensorboard_every_episode(
+            episode, episode_reward, steps, lines_cleared, epsilon, loss, q_values, reward_components
+        )
         self.log_action_distribution_tensorboard(action_count, episode)
         self.log_hardware_usage_tensorboard(episode)
 

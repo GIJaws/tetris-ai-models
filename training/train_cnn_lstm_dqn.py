@@ -135,6 +135,14 @@ def train():
             episode_steps = 0
 
             current_episode_action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
+            episode_reward_components = {
+                "survival_reward": 0.0,
+                "lines_cleared_reward": 0.0,
+                "holes_reward": 0.0,
+                "max_height_reward": 0.0,
+                "bumpiness_reward": 0.0,
+                "game_over_penalty": 0.0,
+            }
             # time_count = -1
             while not done:
                 state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
@@ -151,8 +159,11 @@ def train():
                 next_state, reward, terminated, truncated, _ = env.step(action_combination)
                 next_state_simple = simplify_board(next_state)
                 episode_steps += 1
-
+                reward_components = {}
                 total_reward += reward
+                # Accumulate reward components
+                for key in episode_reward_components.keys():
+                    episode_reward_components[key] += reward_components.get(key, 0.0)
                 done = terminated or truncated
 
                 # Update state
@@ -185,6 +196,7 @@ def train():
                 loss=loss,
                 q_values=q_values,
                 action_count=current_episode_action_count,
+                reward_components=episode_reward_components,
             )
 
             # Update target network
