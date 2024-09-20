@@ -146,13 +146,6 @@ class LoggingManager:
             frequency = count / total_actions
             self.writer.add_scalar(f"Actions/Action_{action}", frequency, episode)
 
-    def log_q_values_tensorboard(self, q_values: List[float], episode: int):
-        if self.writer is None or not q_values:
-            return
-
-        avg_q = np.mean(q_values)
-        self.writer.add_scalar("Q-Values/Average", avg_q, episode)
-
     def log_hardware_usage_tensorboard(self, episode: int):
         if self.writer is None:
             return

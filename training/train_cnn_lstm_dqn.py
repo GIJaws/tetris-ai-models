@@ -94,10 +94,9 @@ def select_action(state, policy_net, steps_done, n_actions):
         with torch.no_grad():
             q_values = policy_net(state)
             action = q_values[:, -1, :].max(-1)[1].item()
-            avg_q = q_values.mean().item()
-        return action, eps_threshold, avg_q
+        return action, eps_threshold, q_values[:, -1, :]
     else:
-        return random.randrange(n_actions), eps_threshold, 0.0
+        return random.randrange(n_actions), eps_threshold, None
 
 
 def train():
@@ -140,8 +139,15 @@ def train():
 
                 prev_lines_cleared = lines_cleared
 
-                action, eps_threshold, avg_q = select_action(state_tensor, policy_net, total_steps_done, n_actions)
+                action, eps_threshold, step_q_values = select_action(
+                    state_tensor, policy_net, total_steps_done, n_actions
+                )
                 current_episode_action_count[action] += 1
+
+                # If q-values are returned (not in the random case), append them for logging
+                if step_q_values is not None:
+                    # Store the q-values as numpy arrays for easier handling later
+                    q_values.append(step_q_values.cpu().numpy())
 
                 action_combination = ACTION_COMBINATIONS.get(action, [7])
                 next_state, reward, terminated, truncated, _ = env.step(action_combination)
