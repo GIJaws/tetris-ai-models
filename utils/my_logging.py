@@ -7,7 +7,24 @@ from logging.handlers import RotatingFileHandler
 from typing import List, Dict, Optional
 import os
 from datetime import datetime
+import gymnasium as gym
 from gymnasium.wrappers import RecordVideo
+import cv2
+
+
+class ResizeVideoOutput(gym.Wrapper):
+    def __init__(self, env, width, height):
+        super(ResizeVideoOutput, self).__init__(env)
+        self.width = width
+        self.height = height
+
+    def render(self, mode="rgb_array", **kwargs):
+        frame = self.env.render(**kwargs)
+
+        if mode == "rgb_array":
+            # Resize the frame for video recording
+            frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_AREA)
+        return frame
 
 
 class LoggingManager:
@@ -48,18 +65,22 @@ class LoggingManager:
         self.logger.addHandler(handler)
         self.logger.addHandler(console_handler)
 
-    def setup_video_recording(self, env, video_every_n_episodes=50):
+    def setup_video_recording(self, env, video_every_n_episodes=50, width=640, height=960):
         """
-        Sets up video recording for the environment.
+        Sets up video recording for the environment with resized video frames.
         Args:
             env: Gym environment instance.
             video_every_n_episodes: Record video every N episodes.
+            width: Width of the resized video.
+            height: Height of the resized video.
         Returns:
             env: Wrapped environment with video recording.
         """
         video_dir = f"{self.output_dir}/videos"
         os.makedirs(video_dir, exist_ok=True)
 
+        # Wrap the environment to resize video frames for recording
+        env = ResizeVideoOutput(env, width, height)
         env = RecordVideo(
             env, video_folder=video_dir, episode_trigger=lambda episode_id: episode_id % video_every_n_episodes == 0
         )
