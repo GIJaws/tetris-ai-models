@@ -156,10 +156,9 @@ def train():
                     q_values.append(step_q_values.cpu().numpy())
 
                 action_combination = ACTION_COMBINATIONS.get(action, [7])
-                next_state, reward, terminated, truncated, _ = env.step(action_combination)
+                next_state, (reward, reward_components), terminated, truncated, _ = env.step(action_combination)
                 next_state_simple = simplify_board(next_state)
                 episode_steps += 1
-                reward_components = {}
                 total_reward += reward
                 # Accumulate reward components
                 for key in episode_reward_components.keys():

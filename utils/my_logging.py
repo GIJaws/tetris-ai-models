@@ -47,7 +47,7 @@ class ResizeVideoOutput(gym.Wrapper):
         )
         self.total_reward += reward
 
-        return obs, reward, terminated, truncated, info
+        return obs, (reward, reward_components), terminated, truncated, info
 
     def reset(self, **kwargs):
         self.total_reward = 0
