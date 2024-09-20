@@ -7,6 +7,7 @@ from logging.handlers import RotatingFileHandler
 from typing import List, Dict, Optional
 import os
 from datetime import datetime
+from gymnasium.wrappers import RecordVideo
 
 
 class LoggingManager:
@@ -46,6 +47,33 @@ class LoggingManager:
         console_handler.setFormatter(formatter)
         self.logger.addHandler(handler)
         self.logger.addHandler(console_handler)
+
+    def setup_video_recording(self, env, video_every_n_episodes=50):
+        """
+        Sets up video recording for the environment.
+        Args:
+            env: Gym environment instance.
+            video_every_n_episodes: Record video every N episodes.
+        Returns:
+            env: Wrapped environment with video recording.
+        """
+        video_dir = f"{self.output_dir}/videos"
+        os.makedirs(video_dir, exist_ok=True)
+
+        env = RecordVideo(
+            env, video_folder=video_dir, episode_trigger=lambda episode_id: episode_id % video_every_n_episodes == 0
+        )
+        return env
+
+    # Modify the logger to log video paths
+    def log_video_recording(self, episode: int):
+        video_dir = f"{self.output_dir}/videos"
+        video_files = sorted(os.listdir(video_dir))
+        if video_files:
+            latest_video = video_files[-1]
+            self.logger.info(f"Episode {episode}: Video recorded - {latest_video}")
+        else:
+            self.logger.warning(f"Episode {episode}: No video recorded.")
 
     def get_model_path(self, episode: Optional[int] = None) -> str:
         if episode:

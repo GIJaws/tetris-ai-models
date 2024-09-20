@@ -6,12 +6,9 @@ from collections import deque
 import random
 import math
 import gymnasium as gym
-from gymnasium.wrappers import RecordVideo
 import gym_simpletetris
-import logging
 import sys
 import os
-from torch.utils.tensorboard import SummaryWriter
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
@@ -105,9 +102,9 @@ def train():
     logger = LoggingManager(model_name="cnn_lstm_dqn")
     render_mode = "rgb_array"
     env = gym.make("SimpleTetris-v0", render_mode=render_mode)
-    print(f"Render mode: {env.render_mode}")
 
-    env = RecordVideo(env, video_folder="videos", episode_trigger=lambda x: x % 50 == 0)
+    env = logger.setup_video_recording(env, video_every_n_episodes=50)  # Automate video recording
+
     n_actions = len(ACTION_COMBINATIONS)
 
     # Initialize networks
