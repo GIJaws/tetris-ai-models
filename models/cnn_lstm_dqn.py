@@ -95,5 +95,5 @@ class CNNLSTMDQN(nn.Module):
 
         # Use the entire sequence output
         lstm_out = self.dropout(lstm_out)
-        x = self.fc(lstm_out.view(batch_size * seq_len, -1)
+        x = self.fc(lstm_out.reshape(batch_size * seq_len, -1))
         return x.view(batch_size, seq_len, -1)

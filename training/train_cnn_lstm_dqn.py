@@ -29,7 +29,7 @@ from utils.my_logging import (
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Hyperparameters
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
@@ -38,6 +38,7 @@ TARGET_UPDATE = 100
 MEMORY_SIZE = 100000
 LEARNING_RATE = 1e-5
 NUM_EPISODES = 10000
+SEQUENCE_LENGTH = 50
 
 # Logging intervals
 EPISODE_LOG_INTERVAL = 5
@@ -104,7 +105,7 @@ def select_action(state, policy_net, steps_done, n_actions):
     if sample > eps_threshold:
         with torch.no_grad():
             q_values = policy_net(state)
-            action = q_values.max(1)[1].view(1, 1).item()
+            action = q_values[:, -1, :].max(-1)[1].item()
             avg_q = q_values.mean().item()
         return action, eps_threshold, avg_q
     else:
@@ -140,7 +141,7 @@ def train():
         for episode in range(1, NUM_EPISODES + 1):
             state, _ = env.reset()
             state = simplify_board(state)
-            sequence_length = 150  # Or any other value you choose
+            sequence_length = SEQUENCE_LENGTH  # Or any other value you choose
             state_deque = deque([state] * sequence_length, maxlen=sequence_length)
             episode_reward = 0
             episode_steps = 0
@@ -224,9 +225,9 @@ def train():
 
             if episode % SAVE_MODEL_INTERVAL == 0:
                 # Save the trained model every SAVE_MODEL_INTERVAL
-                torch.save(policy_net.state_dict(), f"outputs/cnn_lstm_dqn_episode_{episode}_v4.pth")
+                torch.save(policy_net.state_dict(), f"outputs/cnn_lstm_dqn_episode_{episode}_v5.pth")
     finally:
-        torch.save(policy_net.state_dict(), "outputs/cnn_lstm_dqn_v4.pth")
+        torch.save(policy_net.state_dict(), "outputs/cnn_lstm_dqn_v5.pth")
         env.close()
         close_logging()
 

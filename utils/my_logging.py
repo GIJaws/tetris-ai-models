@@ -11,7 +11,7 @@ writer = SummaryWriter()
 # Set up logging
 logger = logging.getLogger("tetris_ai_training")
 logger.setLevel(logging.INFO)
-handler = RotatingFileHandler("training_COMPLEX_dqn.log", maxBytes=10**6, backupCount=5)
+handler = RotatingFileHandler("training_COMPLEX_dqn_V2.log", maxBytes=10**6, backupCount=5)
 handler.setLevel(logging.INFO)
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.WARNING)
