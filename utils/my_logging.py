@@ -11,7 +11,7 @@ writer = SummaryWriter()
 # Set up logging
 logger = logging.getLogger("tetris_ai_training")
 logger.setLevel(logging.INFO)
-handler = RotatingFileHandler("training_simple_dqn.log", maxBytes=10**6, backupCount=5)
+handler = RotatingFileHandler("training_COMPLEX_dqn.log", maxBytes=10**6, backupCount=5)
 handler.setLevel(logging.INFO)
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.WARNING)
@@ -52,6 +52,7 @@ def log_action_distribution(action_count, episode):
         return
     action_dist = {k: v / total_actions for k, v in action_count.items()}
     logger.info(f"Episode {episode}: Action Distribution - {action_dist}")
+    logger.info(f"Episode {episode}: Action Count - {action_count}")
     for action, freq in action_dist.items():
         writer.add_scalar(f"Actions/Action_{action}", freq, episode)
 

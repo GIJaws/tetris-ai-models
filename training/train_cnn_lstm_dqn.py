@@ -29,16 +29,16 @@ from utils.my_logging import (
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Hyperparameters
-BATCH_SIZE = 32
-GAMMA = 0.9999
+BATCH_SIZE = 64
+GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
-EPS_DECAY = 500000
+EPS_DECAY = 200000
 TARGET_UPDATE = 100
 MEMORY_SIZE = 100000
 LEARNING_RATE = 1e-5
 NUM_EPISODES = 10000
-SEQUENCE_LENGTH = 25
+SEQUENCE_LENGTH = 150
 
 # Logging intervals
 EPISODE_LOG_INTERVAL = 5
@@ -146,8 +146,10 @@ def train():
             episode_steps = 0
             lines_cleared = 0
             episode_q_values = []
+            time_count = -1
 
             while True:
+                time_count += 1
                 state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
                 action, eps_threshold, avg_q = select_action(state_tensor, policy_net, steps_done, n_actions)
 
@@ -160,7 +162,7 @@ def train():
                 lines_cleared += info.get("lines_cleared", 0)
 
                 # Calculate and log reward components
-                reward = calculate_reward(next_state_simple, lines_cleared, done)
+                reward = calculate_reward(next_state_simple, lines_cleared, done, time_count)
 
                 episode_reward += reward
                 # Inside the training loop
@@ -222,54 +224,44 @@ def train():
 
             if episode % SAVE_MODEL_INTERVAL == 0:
                 # Save the trained model every SAVE_MODEL_INTERVAL
-                torch.save(policy_net.state_dict(), f"outputs/cnn_lstm_dqn_episode_{episode}_v3.pth")
+                torch.save(policy_net.state_dict(), f"outputs/cnn_lstm_dqn_episode_{episode}_v4.pth")
     finally:
-        torch.save(policy_net.state_dict(), "outputs/cnn_lstm_dqn_v3.pth")
+        torch.save(policy_net.state_dict(), "outputs/cnn_lstm_dqn_v4.pth")
         env.close()
         close_logging()
 
 
-def calculate_reward(board, lines_cleared, game_over):
+def calculate_reward(board, lines_cleared, game_over, time_count):
     reward = 0
 
-    # Reward for each line cleared
-    reward += lines_cleared  # +1 per line cleared
+    # Strongly reward line clears
+    reward += lines_cleared * 100
+    if lines_cleared > 1:
+        reward += (lines_cleared - 1) * 50
 
-    # Bonus for clearing multiple lines at once
-    if lines_cleared >= 2:
-        reward += 1  # Additional +1 bonus
-
-    # Penalty for game over
-    if game_over:
-        reward -= 1  # Modest penalty
-
-    # Calculate heights
+    # Calculate board state
     heights = np.array([board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in board.T])
     max_height = np.max(heights)
-
-    # Height Penalty
-    reward -= 0.01 * max_height
-
-    # Holes Penalty
-    holes = 0
-    for x in range(board.shape[1]):
-        column = board[:, x].astype(bool)
-        filled = np.where(column)[0]
-        if filled.size > 0:
-            holes += np.sum(~column[filled[0] :])
-    reward -= 0.1 * holes
-
-    # Bumpiness Penalty
+    holes = sum(np.sum(~board[:, x].astype(bool)[np.argmax(board[:, x] != 0) :]) for x in range(board.shape[1]))
     bumpiness = np.sum(np.abs(np.diff(heights)))
-    reward -= 0.05 * bumpiness
 
-    # Reward for placing a piece
+    # Penalties
+    reward -= 0.01 * max_height
+    reward -= 0.01 * holes
+    reward -= 0.1 * bumpiness
+
+    # Reward for keeping the board low
+    reward += (board.shape[0] - max_height) * 0.1
+
+    # Small reward for survival and piece placement
     reward += 0.1
+    reward += time_count * 0.01
 
-    # Clip the reward to prevent extreme values
-    reward = np.clip(reward, -1, 1)
+    # Large penalty for game over
+    if game_over:
+        reward -= 50
 
-    return reward
+    return reward  # No clipping to allow for larger range
 
 
 if __name__ == "__main__":

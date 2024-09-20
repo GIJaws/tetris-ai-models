@@ -12,20 +12,20 @@ class CNNLSTMDQN(nn.Module):
         # Changed to LeakyReLU and added dropout to conv layers
         self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(32)
-        self.dropout1 = nn.Dropout2d(dropout)
+        self.dropout1 = nn.Dropout2d(p=0.1)
 
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
         self.bn2 = nn.BatchNorm2d(64)
-        self.dropout2 = nn.Dropout2d(dropout)
+        self.dropout2 = nn.Dropout2d(p=0.2)
 
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
         self.bn3 = nn.BatchNorm2d(64)
-        self.dropout3 = nn.Dropout2d(dropout)
+        self.dropout3 = nn.Dropout2d(p=0.3)
 
         conv_out_size = self._get_conv_output(input_shape)
 
         self.lstm = nn.LSTM(conv_out_size, 256, batch_first=True)
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(p=0.4)
         self.fc = nn.Linear(256, n_actions)
 
         self._initialize_weights()

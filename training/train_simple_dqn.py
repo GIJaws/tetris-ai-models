@@ -34,11 +34,11 @@ GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
 EPS_DECAY = 200000
-TARGET_UPDATE = 10
+TARGET_UPDATE = 100
 MEMORY_SIZE = 10000
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 5e-5
 NUM_EPISODES = 10000
-
+SEQUENCE_LENGTH = 25
 # Logging intervals
 EPISODE_LOG_INTERVAL = 5
 METRICS_AGGREGATE_INTERVAL = 10
@@ -66,8 +66,9 @@ class ReplayMemory(object):
 
 
 def train_dqn():
-    env = gym.make("SimpleTetris-v0", render_mode=None)
+    env = gym.make("SimpleTetris-v0", render_mode="human")
     n_actions = env.action_space.n
+    print(n_actions)
 
     initial_state, _ = env.reset()
     state = simplify_board(initial_state)
@@ -101,14 +102,25 @@ def train_dqn():
             lines_cleared = 0
             episode_q_values = []
             total_reward = 0
+            time_count = -1
+
+            state_deque = deque([state] * SEQUENCE_LENGTH, maxlen=SEQUENCE_LENGTH)
 
             while True:
+                time_count += 1
+                state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
+
                 eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1.0 * steps_done / EPS_DECAY)
                 action = select_action(state, policy_net, n_actions, eps_threshold)
                 action_count[action.item()] += 1  # Update action counts for logging
                 observation, reward, terminated, truncated, info = env.step([action.item()])
-                reward = calculate_reward(observation, info["lines_cleared"], terminated)
+                reward = calculate_reward(observation, info["lines_cleared"], terminated, time_count)
                 total_reward += reward
+                # Inside the training loop
+                with torch.no_grad():
+                    q_values = policy_net(state)
+                    action = q_values.max(1)[1].view(1, 1).item()
+                    episode_q_values.append(q_values.mean().item())
                 done = terminated or truncated
 
                 if not done:
@@ -214,19 +226,19 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     optimizer.step()
 
 
-def calculate_reward(board, lines_cleared, game_over):
+def calculate_reward(board, lines_cleared, game_over, time_count):
     reward = 0
 
     # Reward for each line cleared
-    reward += lines_cleared  # +1 per line cleared
+    reward += lines_cleared * 10
 
     # Bonus for clearing multiple lines at once
-    if lines_cleared >= 2:
-        reward += 1  # Additional +1 bonus
+    # if lines_cleared >= 2:
+    #     reward += 1  # Additional +1 bonus
 
     # Penalty for game over
-    if game_over:
-        reward -= 1  # Modest penalty
+    # if game_over:
+    #     reward -= 1  # Modest penalty
 
     # Calculate heights
     heights = np.array([board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in board.T])
@@ -246,15 +258,15 @@ def calculate_reward(board, lines_cleared, game_over):
 
     # Bumpiness Penalty
     bumpiness = np.sum(np.abs(np.diff(heights)))
-    reward -= 0.05 * bumpiness
+    reward -= bumpiness
 
     # Reward for placing a piece
-    reward += 0.1
+    # reward += 0.1
 
     # Clip the reward to prevent extreme values
-    reward = np.clip(reward, -1, 1)
+    # reward = np.clip(reward, -1, 1)
 
-    return reward
+    return reward + time_count * 0.5
 
 
 if __name__ == "__main__":

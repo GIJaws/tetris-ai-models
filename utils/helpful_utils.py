@@ -47,7 +47,18 @@ def create_action_combinations():
     return action_combinations
 
 
-ACTION_COMBINATIONS = create_action_combinations()
+# ACTION_COMBINATIONS = create_action_combinations()
+
+ACTION_COMBINATIONS = {
+    0: [0],  # Move Left
+    1: [1],  # Move Right
+    2: [2],  # Hard Drop
+    3: [3],  # Soft Drop
+    4: [4],  # Rotate Left
+    5: [5],  # Rotate Right
+    6: [6],  # Hold/Swap
+    # 7: [7],  # Idle
+}
 
 
 def bitmask_to_actions(action_bitmask):
