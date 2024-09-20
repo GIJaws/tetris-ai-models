@@ -6,6 +6,7 @@ from collections import deque
 import random
 import math
 import gymnasium as gym
+from gymnasium.wrappers import RecordVideo
 import gym_simpletetris
 import logging
 import sys
@@ -102,7 +103,11 @@ def select_action(state, policy_net, steps_done, n_actions):
 
 def train():
     logger = LoggingManager(model_name="cnn_lstm_dqn")
-    env = gym.make("SimpleTetris-v0", render_mode=None)
+    render_mode = "rgb_array"
+    env = gym.make("SimpleTetris-v0", render_mode=render_mode)
+    print(f"Render mode: {env.render_mode}")
+
+    env = RecordVideo(env, video_folder="videos", episode_trigger=lambda x: x % 50 == 0)
     n_actions = len(ACTION_COMBINATIONS)
 
     # Initialize networks
