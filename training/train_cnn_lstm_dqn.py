@@ -221,78 +221,119 @@ def train():
         logger.close_logging()
 
 
-def calculate_reward(board_history, lines_cleared_history, game_over, time_count):
+def calculate_reward(board_history, lines_cleared_history, game_over, time_count, window_size=5):
+    """
+    Calculate the reward based on the history of board states and lines cleared.
+
+    Args:
+        board_history (deque): History of board states (each as a 2D numpy array).
+        lines_cleared_history (deque): History of lines cleared per step.
+        game_over (bool): Flag indicating if the game has ended.
+        time_count (int): Number of time steps survived.
+        window_size (int): Number of recent states to consider for rolling comparison.
+
+    Returns:
+        float: Calculated reward.
+    """
     reward = 0
 
-    # Strongly reward cumulative line clears
+    # 1. Survival Reward
+    survival_reward = min(100, time_count * 0.1)  # Capped to prevent excessive rewards
+    reward += survival_reward
+
+    # 2. Reward for Lines Cleared
+    # Calculate total lines cleared in the current step
     total_lines_cleared = sum(lines_cleared_history)
-    reward += total_lines_cleared * 100
+    reward += total_lines_cleared * 100  # Base reward per line
     if total_lines_cleared > 1:
-        reward += (total_lines_cleared - 1) * 50
+        reward += (total_lines_cleared - 1) * 50  # Bonus for multiple lines
 
-    # Initialize cumulative differences
-    total_height_diff = 0
-    total_holes_diff = 0
-    total_bumpiness_diff = 0
+    # 3. Rolling Board Comparison
+    # Only proceed if we have enough history
+    if len(board_history) >= window_size:
+        recent_boards = list(board_history)[-window_size:]
+        cumulative_metrics_diff = {"holes": 0, "max_height": 0, "bumpiness": 0}
 
-    # Iterate over the board history
-    for i in range(1, len(board_history)):
-        prev_board = board_history[i - 1]
-        current_board = board_history[i]
+        # Iterate through the window to accumulate differences
+        for i in range(1, window_size):
+            prev_board = recent_boards[i - 1]
+            current_board = recent_boards[i]
 
-        # Calculate metrics for the previous board
-        prev_heights = np.array(
-            [prev_board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in prev_board.T]
-        )
-        prev_max_height = np.max(prev_heights)
-        prev_holes = sum(
-            np.sum(~prev_board[:, x].astype(bool)[np.argmax(prev_board[:, x] != 0) :])
-            for x in range(prev_board.shape[1])
-        )
-        prev_bumpiness = np.sum(np.abs(np.diff(prev_heights)))
+            prev_metrics = calculate_board_metrics(prev_board)
+            current_metrics = calculate_board_metrics(current_board)
 
-        # Calculate metrics for the current board
-        current_heights = np.array(
-            [current_board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in current_board.T]
-        )
-        current_max_height = np.max(current_heights)
-        current_holes = sum(
-            np.sum(~current_board[:, x].astype(bool)[np.argmax(current_board[:, x] != 0) :])
-            for x in range(current_board.shape[1])
-        )
-        current_bumpiness = np.sum(np.abs(np.diff(current_heights)))
+            # Calculate differences
+            cumulative_metrics_diff["holes"] += current_metrics["holes"] - prev_metrics["holes"]
+            cumulative_metrics_diff["max_height"] += current_metrics["max_height"] - prev_metrics["max_height"]
+            cumulative_metrics_diff["bumpiness"] += current_metrics["bumpiness"] - prev_metrics["bumpiness"]
 
-        # Calculate differences
-        height_diff = prev_max_height - current_max_height
-        holes_diff = prev_holes - current_holes
-        bumpiness_diff = prev_bumpiness - current_bumpiness
+        # 4. Apply Weighted Rewards/Penalties based on Metrics Differences
+        # Define weights (these can be tuned)
+        weights = {
+            "holes": -10.0,  # Penalize increase in holes
+            "max_height": -5.0,  # Penalize increase in max height
+            "bumpiness": -1.0,  # Penalize increase in bumpiness
+        }
 
-        # Accumulate differences
-        total_height_diff += height_diff
-        total_holes_diff += holes_diff
-        total_bumpiness_diff += bumpiness_diff
+        # Apply penalties or rewards
+        for metric, diff in cumulative_metrics_diff.items():
+            if diff < 0:
+                # Improvement: decrease in metric
+                reward += abs(diff) * abs(weights[metric]) * 0.5  # Reward half the improvement
+            elif diff > 0:
+                # Deterioration: increase in metric
+                reward += diff * weights[metric]  # Apply penalty
 
-    # Reward cumulative improvements
-    reward += total_height_diff * 1.0  # Adjust weights as needed
-    reward += total_holes_diff * 5.0
-    reward += total_bumpiness_diff * 0.5
+    else:
+        # If not enough history, perform immediate state comparison
+        if len(board_history) >= 2:
+            prev_board = board_history[-2]
+            current_board = board_history[-1]
 
-    # Penalize cumulative deteriorations
-    if total_height_diff < 0:
-        reward += total_height_diff * 1.0
-    if total_holes_diff < 0:
-        reward += total_holes_diff * 5.0
-    if total_bumpiness_diff < 0:
-        reward += total_bumpiness_diff * 0.5
+            prev_metrics = calculate_board_metrics(prev_board)
+            current_metrics = calculate_board_metrics(current_board)
 
-    # Small reward for survival (longer gameplay)
-    reward += len(board_history) * 0.1
+            metrics_diff = {
+                "holes": current_metrics["holes"] - prev_metrics["holes"],
+                "max_height": current_metrics["max_height"] - prev_metrics["max_height"],
+                "bumpiness": current_metrics["bumpiness"] - prev_metrics["bumpiness"],
+            }
 
-    # Large penalty for game over
+            # Define weights
+            weights = {"holes": -10.0, "max_height": -5.0, "bumpiness": -1.0}
+
+            # Apply penalties or rewards
+            for metric, diff in metrics_diff.items():
+                if diff < 0:
+                    # Improvement: decrease in metric
+                    reward += abs(diff) * abs(weights[metric]) * 0.5  # Reward half the improvement
+                elif diff > 0:
+                    # Deterioration: increase in metric
+                    reward += diff * weights[metric]  # Apply penalty
+
+    # 5. Penalty for Game Over
     if game_over:
-        reward -= 50
+        reward -= 500  # Significant penalty for losing the game
 
-    return reward + time_count * 0.01
+    return reward
+
+
+def calculate_board_metrics(board):
+    """
+    Calculate key metrics from the board state.
+
+    Args:
+        board (np.ndarray): Simplified board with shape (width, height).
+
+    Returns:
+        dict: Metrics including max height, number of holes, and bumpiness.
+    """
+    heights = np.array([board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in board.T])
+    max_height = np.max(heights)
+    holes = sum(np.sum(~board[:, x].astype(bool)[np.argmax(board[:, x] != 0) :]) for x in range(board.shape[1]))
+    bumpiness = np.sum(np.abs(np.diff(heights)))
+
+    return {"max_height": max_height, "holes": holes, "bumpiness": bumpiness}
 
 
 if __name__ == "__main__":
