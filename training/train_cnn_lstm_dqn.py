@@ -38,7 +38,6 @@ TARGET_UPDATE = 100
 MEMORY_SIZE = 100000
 LEARNING_RATE = 1e-5
 NUM_EPISODES = 10000
-SEQUENCE_LENGTH = 150
 
 # Logging intervals
 EPISODE_LOG_INTERVAL = 5
@@ -74,15 +73,15 @@ def optimize_model(memory, policy_net, target_net, optimizer, episode):
     next_state_batch = torch.cat(batch[3])  # Shape: [BATCH_SIZE, SEQ_LEN, H, W]
     done_batch = torch.tensor(batch[4], dtype=torch.bool, device=device)  # Shape: [BATCH_SIZE]
 
-    # Compute Q(s_t, a)
-    state_action_values = policy_net(state_batch).gather(1, action_batch)
+    # Compute Q(s_t, a) - use the last time step
+    state_action_values = policy_net(state_batch)[:, -1, :].gather(1, action_batch)
 
     # Compute V(s_{t+1}) for all next states.
     with torch.no_grad():
         next_state_values = torch.zeros(BATCH_SIZE, device=device)
         non_final_mask = ~done_batch
         if non_final_mask.sum() > 0:
-            next_state_values[non_final_mask] = target_net(next_state_batch[non_final_mask]).max(1)[0]
+            next_state_values[non_final_mask] = target_net(next_state_batch[non_final_mask])[:, -1, :].max(1)[0]
 
     # Compute the expected Q values
     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
@@ -121,8 +120,8 @@ def train():
     state = simplify_board(state)
     input_shape = (state.shape[0], state.shape[1])
 
-    policy_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH).to(device)
-    target_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH).to(device)
+    policy_net = CNNLSTMDQN(input_shape, n_actions).to(device)
+    target_net = CNNLSTMDQN(input_shape, n_actions).to(device)
     target_net.load_state_dict(policy_net.state_dict())
     target_net.eval()
 
@@ -141,7 +140,8 @@ def train():
         for episode in range(1, NUM_EPISODES + 1):
             state, _ = env.reset()
             state = simplify_board(state)
-            state_deque = deque([state] * SEQUENCE_LENGTH, maxlen=SEQUENCE_LENGTH)
+            sequence_length = 150  # Or any other value you choose
+            state_deque = deque([state] * sequence_length, maxlen=sequence_length)
             episode_reward = 0
             episode_steps = 0
             lines_cleared = 0
@@ -168,8 +168,8 @@ def train():
                 # Inside the training loop
                 with torch.no_grad():
                     q_values = policy_net(state_tensor)
-                    action = q_values.max(1)[1].view(1, 1).item()
-                    episode_q_values.append(q_values.mean().item())
+                    last_q_values = q_values[:, -1, :]  # Use the last time step
+                    episode_q_values.append(last_q_values.mean().item())
 
                 # Update state
                 state_deque.append(next_state_simple)

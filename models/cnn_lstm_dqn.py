@@ -5,9 +5,8 @@ import numpy as np
 
 
 class CNNLSTMDQN(nn.Module):
-    def __init__(self, input_shape, n_actions, sequence_length=4, dropout=0.5):
+    def __init__(self, input_shape, n_actions, dropout=0.5):
         super(CNNLSTMDQN, self).__init__()
-        self.sequence_length = sequence_length
 
         # Changed to LeakyReLU and added dropout to conv layers
         self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1)
@@ -93,6 +92,8 @@ class CNNLSTMDQN(nn.Module):
 
         conv_out = x.view(batch_size, seq_len, -1)
         lstm_out, _ = self.lstm(conv_out)
-        lstm_out = self.dropout(lstm_out[:, -1, :])
-        x = self.fc(lstm_out)
-        return x
+
+        # Use the entire sequence output
+        lstm_out = self.dropout(lstm_out)
+        x = self.fc(lstm_out.view(batch_size * seq_len, -1)
+        return x.view(batch_size, seq_len, -1)
