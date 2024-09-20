@@ -10,6 +10,9 @@ from datetime import datetime
 import gymnasium as gym
 from gymnasium.wrappers import RecordVideo
 import cv2
+from collections import deque
+from utils.helpful_utils import simplify_board
+from utils.reward_functions import calculate_reward, calculate_board_metrics
 
 
 class ResizeVideoOutput(gym.Wrapper):
@@ -17,13 +20,81 @@ class ResizeVideoOutput(gym.Wrapper):
         super(ResizeVideoOutput, self).__init__(env)
         self.width = width
         self.height = height
+        # Initialize stats
+        self.total_reward = 0
+        self.total_lines_cleared = 0
+        self.time_step = 0
+        # For reward calculation
+        self.board_history = deque(maxlen=5)
+        self.lines_cleared_history = deque(maxlen=5)
+        self.time_count = -1
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        self.time_step += 1
+        self.time_count += 1
+        done = terminated or truncated
+
+        # Update board and lines cleared history
+        board_state = simplify_board(obs)
+        self.board_history.append(board_state.copy())
+        lines_cleared = info.get("lines_cleared", 0)
+        self.lines_cleared_history.append(lines_cleared)
+
+        # Calculate custom reward
+        reward = calculate_reward(self.board_history, self.lines_cleared_history, done, self.time_count)
+        self.total_reward += reward
+
+        return obs, reward, terminated, truncated, info
+
+    def reset(self, **kwargs):
+        self.total_reward = 0
+        self.total_lines_cleared = 0
+        self.time_step = 0
+        self.board_history.clear()
+        self.lines_cleared_history.clear()
+        self.time_count = -1
+        return self.env.reset(**kwargs)
 
     def render(self, mode="rgb_array", **kwargs):
         frame = self.env.render(**kwargs)
-
+        font_scale = 1
         if mode == "rgb_array":
+
             # Resize the frame for video recording
             frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_AREA)
+            # if frame.shape[2] == 3:  # If RGB image
+            #     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            # Add text
+            cv2.putText(
+                frame,
+                f"Reward: {self.total_reward:.2f}",
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (255, 255, 255),
+                2,
+            )
+            cv2.putText(
+                frame,
+                f"Lines Cleared: {self.total_lines_cleared}",
+                (10, 70),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (255, 255, 255),
+                2,
+            )
+            cv2.putText(
+                frame,
+                f"Time Step: {self.time_step}",
+                (10, 110),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (255, 255, 255),
+                2,
+            )
+            # Convert back to RGB (if necessary)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         return frame
 
 
