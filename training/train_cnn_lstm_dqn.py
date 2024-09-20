@@ -126,8 +126,10 @@ def train():
             state, info = env.reset()
             state = simplify_board(state)
 
-            board_history = deque([state.copy()] * (HISTORY_LENGTH + 1), maxlen=HISTORY_LENGTH + 1)
+            board_history = deque(maxlen=HISTORY_LENGTH + 1)
+            lines_cleared_history = deque(maxlen=HISTORY_LENGTH + 1)
             state_deque = deque([state] * SEQUENCE_LENGTH, maxlen=SEQUENCE_LENGTH)
+            # state_deque = deque(maxlen=SEQUENCE_LENGTH)
             done = False
             total_reward = 0
             loss = None
@@ -158,12 +160,11 @@ def train():
                 next_state_simple = simplify_board(next_state)
                 episode_steps += 1
 
-                board_history.append(next_state_simple.copy())
-
                 lines_cleared = info["lines_cleared"]
-                reward = calculate_reward(
-                    board_history, next_state_simple, lines_cleared - prev_lines_cleared, done, time_count
-                )
+                board_history.append(next_state_simple.copy())
+                lines_cleared_history.append(lines_cleared - prev_lines_cleared)
+
+                reward = calculate_reward(board_history, lines_cleared_history, done, time_count)
 
                 total_reward += reward
                 done = terminated or truncated
@@ -218,59 +219,78 @@ def train():
         logger.close_logging()
 
 
-def calculate_reward(board_history, board, lines_cleared, game_over, time_count):
+def calculate_reward(board_history, lines_cleared_history, game_over, time_count):
     reward = 0
 
-    prev_board = board_history[-1]
+    # Strongly reward cumulative line clears
+    total_lines_cleared = sum(lines_cleared_history)
+    reward += total_lines_cleared * 100
+    if total_lines_cleared > 1:
+        reward += (total_lines_cleared - 1) * 50
 
-    # Strongly reward line clears
-    reward += lines_cleared * 100
-    if lines_cleared > 1:
-        reward += (lines_cleared - 1) * 50
+    # Initialize cumulative differences
+    total_height_diff = 0
+    total_holes_diff = 0
+    total_bumpiness_diff = 0
 
-    # Calculate metrics for the previous board
-    prev_heights = np.array(
-        [prev_board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in prev_board.T]
-    )
-    prev_max_height = np.max(prev_heights)
-    prev_holes = sum(
-        np.sum(~prev_board[:, x].astype(bool)[np.argmax(prev_board[:, x] != 0) :]) for x in range(prev_board.shape[1])
-    )
-    prev_bumpiness = np.sum(np.abs(np.diff(prev_heights)))
+    # Iterate over the board history
+    for i in range(1, len(board_history)):
+        prev_board = board_history[i - 1]
+        current_board = board_history[i]
 
-    # Calculate metrics for the current board
-    heights = np.array([board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in board.T])
-    max_height = np.max(heights)
-    holes = sum(np.sum(~board[:, x].astype(bool)[np.argmax(board[:, x] != 0) :]) for x in range(board.shape[1]))
-    bumpiness = np.sum(np.abs(np.diff(heights)))
+        # Calculate metrics for the previous board
+        prev_heights = np.array(
+            [prev_board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in prev_board.T]
+        )
+        prev_max_height = np.max(prev_heights)
+        prev_holes = sum(
+            np.sum(~prev_board[:, x].astype(bool)[np.argmax(prev_board[:, x] != 0) :])
+            for x in range(prev_board.shape[1])
+        )
+        prev_bumpiness = np.sum(np.abs(np.diff(prev_heights)))
 
-    # Calculate differences (positive if improvement)
-    height_diff = prev_max_height - max_height
-    holes_diff = prev_holes - holes
-    bumpiness_diff = prev_bumpiness - bumpiness
+        # Calculate metrics for the current board
+        current_heights = np.array(
+            [current_board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in current_board.T]
+        )
+        current_max_height = np.max(current_heights)
+        current_holes = sum(
+            np.sum(~current_board[:, x].astype(bool)[np.argmax(current_board[:, x] != 0) :])
+            for x in range(current_board.shape[1])
+        )
+        current_bumpiness = np.sum(np.abs(np.diff(current_heights)))
 
-    # Reward improvements
-    reward += height_diff * 1.0  # Adjust weights as needed
-    reward += holes_diff * 5.0
-    reward += bumpiness_diff * 0.5
+        # Calculate differences
+        height_diff = prev_max_height - current_max_height
+        holes_diff = prev_holes - current_holes
+        bumpiness_diff = prev_bumpiness - current_bumpiness
 
-    # Penalize deteriorations
-    if height_diff < 0:
-        reward += height_diff * 1.0  # Negative value penalizes increase in height
-    if holes_diff < 0:
-        reward += holes_diff * 5.0  # Negative value penalizes more holes
-    if bumpiness_diff < 0:
-        reward += bumpiness_diff * 0.5  # Negative value penalizes increased bumpiness
+        # Accumulate differences
+        total_height_diff += height_diff
+        total_holes_diff += holes_diff
+        total_bumpiness_diff += bumpiness_diff
 
-    # Small reward for survival and piece placement
-    reward += 0.1
-    reward += time_count * 0.01
+    # Reward cumulative improvements
+    reward += total_height_diff * 1.0  # Adjust weights as needed
+    reward += total_holes_diff * 5.0
+    reward += total_bumpiness_diff * 0.5
+
+    # Penalize cumulative deteriorations
+    if total_height_diff < 0:
+        reward += total_height_diff * 1.0
+    if total_holes_diff < 0:
+        reward += total_holes_diff * 5.0
+    if total_bumpiness_diff < 0:
+        reward += total_bumpiness_diff * 0.5
+
+    # Small reward for survival (longer gameplay)
+    reward += len(board_history) * 0.1
 
     # Large penalty for game over
     if game_over:
         reward -= 50
 
-    return reward
+    return reward + time_count * 0.01
 
 
 if __name__ == "__main__":
