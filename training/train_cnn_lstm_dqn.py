@@ -33,6 +33,7 @@ MEMORY_SIZE = 100000
 LEARNING_RATE = 1e-5
 NUM_EPISODES = 10000
 SEQUENCE_LENGTH = 50
+HISTORY_LENGTH = 100
 
 
 class ReplayMemory:
@@ -124,12 +125,15 @@ def train():
         for episode in range(1, NUM_EPISODES + 1):
             state, info = env.reset()
             state = simplify_board(state)
+
+            board_history = deque([state.copy()] * (HISTORY_LENGTH + 1), maxlen=HISTORY_LENGTH + 1)
             state_deque = deque([state] * SEQUENCE_LENGTH, maxlen=SEQUENCE_LENGTH)
             done = False
             total_reward = 0
             loss = None
             q_values = []
             lines_cleared = 0
+            episode_steps = 0
 
             current_episode_action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
             time_count = -1
@@ -152,10 +156,14 @@ def train():
                 action_combination = ACTION_COMBINATIONS.get(action, [7])
                 next_state, reward, terminated, truncated, _ = env.step(action_combination)
                 next_state_simple = simplify_board(next_state)
-                # Calculate and log reward components
+                episode_steps += 1
+
+                board_history.append(next_state_simple.copy())
 
                 lines_cleared = info["lines_cleared"]
-                reward = calculate_reward(next_state_simple, lines_cleared - prev_lines_cleared, done, time_count)
+                reward = calculate_reward(
+                    board_history, next_state_simple, lines_cleared - prev_lines_cleared, done, time_count
+                )
 
                 total_reward += reward
                 done = terminated or truncated
@@ -184,7 +192,7 @@ def train():
             logger.log_every_episode(
                 episode=episode,
                 episode_reward=total_reward,
-                steps=0,  # Steps per episode can be tracked if needed
+                steps=episode_steps,
                 lines_cleared=info.get("lines_cleared", 0),
                 epsilon=eps_threshold,
                 loss=loss,
@@ -210,27 +218,49 @@ def train():
         logger.close_logging()
 
 
-def calculate_reward(board, lines_cleared, game_over, time_count):
+def calculate_reward(board_history, board, lines_cleared, game_over, time_count):
     reward = 0
+
+    prev_board = board_history[-1]
 
     # Strongly reward line clears
     reward += lines_cleared * 100
     if lines_cleared > 1:
         reward += (lines_cleared - 1) * 50
 
-    # Calculate board state
+    # Calculate metrics for the previous board
+    prev_heights = np.array(
+        [prev_board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in prev_board.T]
+    )
+    prev_max_height = np.max(prev_heights)
+    prev_holes = sum(
+        np.sum(~prev_board[:, x].astype(bool)[np.argmax(prev_board[:, x] != 0) :]) for x in range(prev_board.shape[1])
+    )
+    prev_bumpiness = np.sum(np.abs(np.diff(prev_heights)))
+
+    # Calculate metrics for the current board
     heights = np.array([board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in board.T])
     max_height = np.max(heights)
     holes = sum(np.sum(~board[:, x].astype(bool)[np.argmax(board[:, x] != 0) :]) for x in range(board.shape[1]))
     bumpiness = np.sum(np.abs(np.diff(heights)))
 
-    # Penalties
-    reward -= 0.01 * max_height
-    reward -= 0.01 * holes
-    reward -= 0.1 * bumpiness
+    # Calculate differences (positive if improvement)
+    height_diff = prev_max_height - max_height
+    holes_diff = prev_holes - holes
+    bumpiness_diff = prev_bumpiness - bumpiness
 
-    # Reward for keeping the board low
-    reward += (board.shape[0] - max_height) * 0.1
+    # Reward improvements
+    reward += height_diff * 1.0  # Adjust weights as needed
+    reward += holes_diff * 5.0
+    reward += bumpiness_diff * 0.5
+
+    # Penalize deteriorations
+    if height_diff < 0:
+        reward += height_diff * 1.0  # Negative value penalizes increase in height
+    if holes_diff < 0:
+        reward += holes_diff * 5.0  # Negative value penalizes more holes
+    if bumpiness_diff < 0:
+        reward += bumpiness_diff * 0.5  # Negative value penalizes increased bumpiness
 
     # Small reward for survival and piece placement
     reward += 0.1
@@ -240,7 +270,7 @@ def calculate_reward(board, lines_cleared, game_over, time_count):
     if game_over:
         reward -= 50
 
-    return reward  # No clipping to allow for larger range
+    return reward
 
 
 if __name__ == "__main__":
