@@ -175,16 +175,18 @@ class LoggingManager:
         loss: Optional[float],
         q_values: List[float],
         action_count: Dict[int, int],
+        log_interval=10,
     ):
         # Log to files periodically
-        self.log_episode_info_file(episode, episode_reward, steps, lines_cleared, epsilon, loss)
-        if episode % 10 == 0:
+        if episode % log_interval == 0:
+            self.log_episode_info_file(episode, episode_reward, steps, lines_cleared, epsilon, loss)
+        if episode % log_interval == 0:
             self.log_q_values_file(episode, q_values)
-        if episode % 10 == 0:
+        if episode % log_interval == 0:
             self.log_action_distribution_file(action_count, episode)
-        if loss is not None:
+        if episode % log_interval == 0 and loss is not None:
             self.log_loss_file(loss, episode)
-        if episode % 10 == 0:
+        if episode % log_interval == 0:
             self.log_hardware_usage_file(episode)
 
         # Log to TensorBoard every episode

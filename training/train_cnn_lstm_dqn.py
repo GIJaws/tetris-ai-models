@@ -49,7 +49,7 @@ class ReplayMemory:
         return len(self.memory)
 
 
-def optimize_model(memory, policy_net, target_net, optimizer, episode, logger):
+def optimize_model(memory, policy_net, target_net, optimizer):
     if len(memory) < BATCH_SIZE:
         return None  # No loss to report
 
@@ -83,18 +83,6 @@ def optimize_model(memory, policy_net, target_net, optimizer, episode, logger):
     loss.backward()
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
-
-    # Log loss
-    logger.log_every_episode(
-        episode=episode,
-        episode_reward=0,  # Not applicable here
-        steps=0,  # Not applicable here
-        lines_cleared=0,  # Not applicable here
-        epsilon=0,  # Not applicable here
-        loss=loss.item(),
-        q_values=[],  # Not applicable here
-        action_count={},  # Not applicable here
-    )
 
     return loss.item()
 
@@ -131,11 +119,7 @@ def train():
     memory = ReplayMemory(MEMORY_SIZE)
 
     # Metrics tracking
-    steps_done = 0
-    episode_q_values = []
-
-    # Enhance logging by adding action distribution and loss tracking
-    action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
+    total_steps_done = 0
 
     try:
         for episode in range(1, NUM_EPISODES + 1):
@@ -146,35 +130,49 @@ def train():
             total_reward = 0
             loss = None
             q_values = []
-            current_episode_action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
+            lines_cleared = 0
 
+            current_episode_action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
+            time_count = -1
             while not done:
+                time_count += 1
                 state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
 
-                action, eps_threshold, avg_q = select_action(state_tensor, policy_net, steps_done, n_actions)
+                prev_lines_cleared = lines_cleared
+
+                action, eps_threshold, avg_q = select_action(state_tensor, policy_net, total_steps_done, n_actions)
                 current_episode_action_count[action] += 1
 
-                action_combination = ACTION_COMBINATIONS.get(action, ["idle"])
+                action_combination = ACTION_COMBINATIONS.get(action, [7])
                 next_state, reward, terminated, truncated, _ = env.step(action_combination)
+                next_state_simple = simplify_board(next_state)
+                # Calculate and log reward components
+
+                lines_cleared = info["lines_cleared"]
+                reward = calculate_reward(next_state_simple, lines_cleared - prev_lines_cleared, done, time_count)
+
                 total_reward += reward
                 done = terminated or truncated
 
-                next_state = simplify_board(next_state)
-                state_deque.append(next_state)
+                # Update state
+                state_deque.append(next_state_simple)
+                next_state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(
+                    0
+                )
 
                 # Store transition in memory
                 memory.push(
                     state_tensor,
                     torch.tensor([[action]], device=device, dtype=torch.long),
                     reward,
-                    torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0),
+                    next_state_tensor,
                     done,
                 )
 
                 # Optimize the model
-                loss = optimize_model(memory, policy_net, target_net, optimizer, episode, logger)
+                loss = optimize_model(memory, policy_net, target_net, optimizer)
 
-                steps_done += 1
+                total_steps_done += 1
 
             # Log metrics to TensorBoard and files
             logger.log_every_episode(
@@ -191,9 +189,6 @@ def train():
             # Update target network
             if episode % TARGET_UPDATE == 0:
                 target_net.load_state_dict(policy_net.state_dict())
-
-            # Log hardware usage every episode
-            logger.log_hardware_usage_tensorboard(episode)
 
             # Save the trained model every SAVE_MODEL_INTERVAL
             if episode % 100 == 0:
