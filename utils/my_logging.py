@@ -27,7 +27,6 @@ class ResizeVideoOutput(gym.Wrapper):
         # For reward calculation
         self.board_history = deque(maxlen=5)
         self.lines_cleared_history = deque(maxlen=5)
-        self.time_count = -1
         self.reward_components = {
             "survival_reward": 0,
             "lines_cleared_reward": 0,
@@ -36,22 +35,23 @@ class ResizeVideoOutput(gym.Wrapper):
             "bumpiness_reward": 0,
             "total_reward": 0,
         }
+        self.action: list[int] = []
 
     def step(self, action):
+        self.action = action
         obs, reward, terminated, truncated, info = self.env.step(action)
         self.time_step += 1
-        self.time_count += 1
         done = terminated or truncated
 
         # Update board and lines cleared history
         board_state = simplify_board(obs)
-        self.board_history.append(board_state.copy())
-        lines_cleared = info.get("lines_cleared", 0)
-        self.lines_cleared_history.append(lines_cleared)
+        self.board_history.append(board_state)
+
+        self.lines_cleared_history.append(info.get("lines_cleared", 0))
 
         # Calculate custom reward
         reward, reward_components, (cur_board, cur_board_no_piece) = calculate_reward(
-            self.board_history, self.lines_cleared_history, done, self.time_count
+            self.board_history, self.lines_cleared_history, done, self.time_step
         )
         self.total_reward += reward
         self.reward_components = reward_components
@@ -61,25 +61,32 @@ class ResizeVideoOutput(gym.Wrapper):
     def reset(self, **kwargs):
         self.total_reward = 0
         self.total_lines_cleared = 0
-        self.time_step = 0
         self.board_history.clear()
         self.lines_cleared_history.clear()
-        self.time_count = -1
+        self.time_step = -1
         return self.env.reset(**kwargs)
 
     def render(self, mode="rgb_array", **kwargs):
         frame = self.env.render(**kwargs)
-        font_scale = 0.8
+        font_scale = 1
         if mode == "rgb_array":
+            # Ensure frame is in the correct format (convert to numpy array if it's not)
+            if not isinstance(frame, np.ndarray):
+                frame = np.array(frame)
+
+            # Convert to BGR color space if it's in RGB
+            if frame.shape[2] == 3:
+                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
             # Resize the frame for video recording
             frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_AREA)
+
             # if frame.shape[2] == 3:  # If RGB image
             #     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             # Add text
             cv2.putText(
                 frame,
-                f"Reward: {self.total_reward:.2f}",
+                f"Total Reward: {self.total_reward:.3f}",
                 (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 font_scale,
@@ -116,8 +123,16 @@ class ResizeVideoOutput(gym.Wrapper):
                     2,
                 )
                 foo += 30
-            # Convert back to RGB (if necessary)
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            cv2.putText(
+                frame,
+                f"Action: {self.action}",
+                (10, foo),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (255, 255, 255),
+                2,
+            )
+
         return frame
 
 
@@ -159,7 +174,7 @@ class LoggingManager:
         self.logger.addHandler(handler)
         self.logger.addHandler(console_handler)
 
-    def setup_video_recording(self, env, video_every_n_episodes=50, width=640, height=960):
+    def setup_video_recording(self, env, video_every_n_episodes=50, width=640, height=640):
         """
         Sets up video recording for the environment with resized video frames.
         Args:
@@ -176,7 +191,9 @@ class LoggingManager:
         # Wrap the environment to resize video frames for recording
         env = ResizeVideoOutput(env, width, height)
         env = RecordVideo(
-            env, video_folder=video_dir, episode_trigger=lambda episode_id: episode_id % video_every_n_episodes == 0
+            env,
+            video_folder=video_dir,
+            episode_trigger=lambda episode_id: episode_id % video_every_n_episodes == 0,
         )
         return env
 

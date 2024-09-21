@@ -100,7 +100,7 @@ def select_action(state, policy_net, steps_done, n_actions):
 def train():
     logger = LoggingManager(model_name="cnn_lstm_dqn")
     render_mode = "rgb_array"
-    env = gym.make("SimpleTetris-v0", render_mode=render_mode)
+    env = gym.make("SimpleTetris-v0", render_mode=render_mode, initial_level=100)
 
     env = logger.setup_video_recording(env, video_every_n_episodes=50)  # Automate video recording
 
@@ -160,14 +160,17 @@ def train():
                 next_state, (reward, reward_components, (cur_board, cur_board_no_piece)), terminated, truncated, _ = (
                     env.step(action_combination)
                 )
+
+                if episode % 10 == 0 or episode == 1:  # Only log every step every 10 episodes
+                    logger.log_every_step(cur_board, cur_board_no_piece, episode, time_count, reward_components)
                 next_state_simple = simplify_board(next_state)
+
                 episode_steps += 1
                 total_reward += reward
                 # Accumulate reward components
                 for key in episode_reward_components.keys():
                     episode_reward_components[key] += reward_components.get(key, 0.0)
 
-                # logger.log_every_step(cur_board, cur_board_no_piece, episode, time_count, reward_components)
                 done = terminated or truncated
 
                 # Update state
