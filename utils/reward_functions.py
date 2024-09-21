@@ -12,6 +12,70 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
         lines_cleared_history (deque): History of lines cleared per step.
         game_over (bool): Flag indicating if the game has ended.
         time_count (int): Number of time steps survived.
+        window_size (int): Number of recent states to consider (not used in this version).
+
+    Returns:
+        float: Total reward.
+        dict: Dictionary of individual reward components.
+    """
+    # Get the current board state (most recent in history)
+    current_board = board_history[-1]
+
+    # Remove floating blocks (including the current falling piece)
+    settled_board = remove_floating_blocks(current_board)
+
+    # Calculate basic metrics
+    heights = np.sum(settled_board, axis=0)
+    max_height = np.max(heights)
+    bumpiness = np.sum(np.abs(np.diff(heights)))
+    holes = np.sum((settled_board == 0) & (np.cumsum(settled_board, axis=0) > 0))
+
+    # Lines cleared in the most recent move
+    lines_cleared = lines_cleared_history[-1] if lines_cleared_history else 0
+
+    # Reward components
+    height_penalty = -0.51 * max_height
+    hole_penalty = -1.13 * holes
+    bumpiness_penalty = -0.18 * bumpiness
+    lines_cleared_reward = 8.0 * lines_cleared
+    survival_reward = 0.01 * time_count  # Small reward for surviving each step
+
+    # Game over penalty
+    game_over_penalty = -8.0 if game_over else 0
+
+    # Calculate total reward
+    total_reward = (
+        height_penalty
+        + hole_penalty
+        # + bumpiness_penalty
+        + lines_cleared_reward
+        + game_over_penalty
+        # survival_reward +
+    )
+
+    # Collect reward components in a dictionary
+    reward_components = {
+        "height_penalty": height_penalty,
+        "hole_penalty": hole_penalty,
+        "bumpiness_penalty": bumpiness_penalty,
+        "lines_cleared_reward": lines_cleared_reward,
+        "survival_reward": survival_reward,
+        "game_over_penalty": game_over_penalty,
+        "total_reward": total_reward,
+    }
+
+    return total_reward, reward_components, (current_board, settled_board)
+
+
+def calculate_reward_OLD(board_history, lines_cleared_history, game_over, time_count, window_size=5):
+    """
+    Calculate the reward based on the history of board states and lines cleared.
+
+    Args:
+        board_history (deque): History of board states (each as 2D numpy arrays).
+        lines_cleared_history (deque): History of lines cleared per step.
+        game_over (bool): Flag indicating if the game has ended.
+        time_count (int): Number of time steps survived.
         window_size (int): Number of recent states to consider for rolling comparison.
 
     Returns:
@@ -38,7 +102,7 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
 
     # Weights for the metrics
     weights = {
-        "holes": -0.10,  # Penalize increase in holes
+        "holes": -1,  # Penalize increase in holes
         "max_height": -0.10,  # Penalize increase in max height
         "bumpiness": -0.10,  # Penalize increase in bumpiness
         "avg_height": 1,
