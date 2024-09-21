@@ -11,7 +11,7 @@ import gymnasium as gym
 from gymnasium.wrappers import RecordVideo
 import cv2
 from collections import deque
-from utils.helpful_utils import simplify_board
+from utils.helpful_utils import simplify_board, BASIC_ACTIONS
 from utils.reward_functions import calculate_reward, calculate_board_metrics
 
 
@@ -27,18 +27,11 @@ class ResizeVideoOutput(gym.Wrapper):
         # For reward calculation
         self.board_history = deque(maxlen=5)
         self.lines_cleared_history = deque(maxlen=5)
-        self.reward_components = {
-            "survival_reward": 0,
-            "lines_cleared_reward": 0,
-            "holes_reward": 0,
-            "max_height_reward": 0,
-            "bumpiness_reward": 0,
-            "total_reward": 0,
-        }
-        self.action: list[int] = []
+        self.reward_components = {}
+        self.actions: list[int] = []
 
     def step(self, action):
-        self.action = action
+        self.actions = action
         obs, reward, terminated, truncated, info = self.env.step(action)
         self.time_step += 1
         done = terminated or truncated
@@ -86,22 +79,14 @@ class ResizeVideoOutput(gym.Wrapper):
             # Add text
             cv2.putText(
                 frame,
-                f"Total Reward: {self.total_reward:.3f}",
+                f"Total Chicken Sum Reward: {self.total_reward:.3f}",
                 (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 font_scale,
                 (255, 255, 255),
                 2,
             )
-            cv2.putText(
-                frame,
-                f"Lines Cleared: {self.total_lines_cleared}",
-                (10, 70),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                font_scale,
-                (255, 255, 255),
-                2,
-            )
+
             cv2.putText(
                 frame,
                 f"Time Step: {self.time_step}",
@@ -115,7 +100,7 @@ class ResizeVideoOutput(gym.Wrapper):
             for k, v in self.reward_components.items():
                 cv2.putText(
                     frame,
-                    f"{k}:{v:.2f}",
+                    f"{k}:{v:.5f}",
                     (10, foo),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     font_scale,
@@ -125,7 +110,7 @@ class ResizeVideoOutput(gym.Wrapper):
                 foo += 30
             cv2.putText(
                 frame,
-                f"Action: {self.action}",
+                f"Action: {[BASIC_ACTIONS.get(act, 'NO ACTION') for act in self.actions]}",
                 (10, foo),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 font_scale,

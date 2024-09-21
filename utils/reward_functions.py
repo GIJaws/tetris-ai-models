@@ -25,9 +25,9 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
     max_height_reward = 0
     bumpiness_reward = 0
     game_over_penalty = 0
-
+    avg_height = 0
     # 1. Survival Reward
-    survival_reward = min(100, time_count * 0.1)  # Capped to prevent excessive rewards
+    survival_reward = min(100, time_count * 0.01)  # Capped to prevent excessive rewards
 
     # 2. Reward for Lines Cleared
     # Calculate total lines cleared in the current step
@@ -39,18 +39,19 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
     # Weights for the metrics
     weights = {
         "holes": -0.10,  # Penalize increase in holes
-        "max_height": -10.0,  # Penalize increase in max height
-        "bumpiness": -2.0,  # Penalize increase in bumpiness
+        "max_height": -0.10,  # Penalize increase in max height
+        "bumpiness": -0.10,  # Penalize increase in bumpiness
+        "avg_height": 1,
     }
 
     # Decay rate for older states
-    decay_rate = 0.8  # Adjust between 0 and 1; lower means faster decay
+    decay_rate = 0.1  # Adjust between 0 and 1; lower means faster decay
 
     board_without_piece_history = [remove_floating_blocks(board) for board in board_history]
 
     # 3. Rolling Board Comparison with Decaying Weights
     recent_boards = list(board_without_piece_history)[-window_size:]
-    cumulative_metrics_diff = {"holes": 0.0, "max_height": 0.0, "bumpiness": 0.0}
+    cumulative_metrics_diff = {metric: 0.0 for metric in weights}
 
     n = len(recent_boards)
     for i in range(1, n):
@@ -92,16 +93,18 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
             max_height_reward += component_reward
         elif metric == "bumpiness":
             bumpiness_reward += component_reward
+        elif metric == "avg_height":
+            avg_height += component_reward
 
     # 4. Penalty for Game Over
     if game_over:
-        game_over_penalty = -500  # Significant penalty for losing the game
+        game_over_penalty = float("-inf")  # TODO is -inf to much??
 
     # Total reward
     total_reward = (
-        # survival_reward
-        +lines_cleared_reward
-        + holes_reward
+        survival_reward
+        + lines_cleared_reward
+        # + holes_reward
         + max_height_reward
         + bumpiness_reward
         + game_over_penalty
@@ -113,8 +116,9 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
         "lines_cleared_reward": lines_cleared_reward,
         "holes_reward": holes_reward,
         "max_height_reward": max_height_reward,
+        "avg_height": avg_height,
         "bumpiness_reward": bumpiness_reward,
-        "game_over_penalty": game_over_penalty,
+        # "game_over_penalty": game_over_penalty,
         "total_reward": total_reward,
     }
 
@@ -135,7 +139,6 @@ def remove_floating_blocks(board):
     labeled_board, num_features = ndimage.label(board)
 
     # Create a mask for settled pieces connected to the bottom
-    width, height = board.shape
     connected_to_bottom = np.zeros_like(board, dtype=bool)
 
     # Check bottom row for pieces
@@ -163,6 +166,7 @@ def calculate_board_metrics(board):
     """
     heights = np.array([board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in board.T])
     max_height = np.max(heights)
+    avg_height = np.mean(heights)
     holes = sum(
         np.sum(~board[np.argmax(board[:, x] != 0) :, x].astype(bool))
         for x in range(board.shape[1])
@@ -170,4 +174,4 @@ def calculate_board_metrics(board):
     )
     bumpiness = np.sum(np.abs(np.diff(heights)))
 
-    return {"max_height": max_height, "holes": holes, "bumpiness": bumpiness}
+    return {"max_height": max_height, "holes": holes, "bumpiness": bumpiness, "avg_height": avg_height}

@@ -20,14 +20,14 @@ from utils.my_logging import LoggingManager
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Hyperparameters
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
 EPS_DECAY = 200000
-TARGET_UPDATE = 100
+TARGET_UPDATE = 250
 MEMORY_SIZE = 100000
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-3
 NUM_EPISODES = 10000
 SEQUENCE_LENGTH = 50
 HISTORY_LENGTH = 100
@@ -100,7 +100,7 @@ def select_action(state, policy_net, steps_done, n_actions):
 def train():
     logger = LoggingManager(model_name="cnn_lstm_dqn")
     render_mode = "rgb_array"
-    env = gym.make("SimpleTetris-v0", render_mode=render_mode, initial_level=100)
+    env = gym.make("SimpleTetris-v0", render_mode=render_mode, initial_level=1)
 
     env = logger.setup_video_recording(env, video_every_n_episodes=50)  # Automate video recording
 
