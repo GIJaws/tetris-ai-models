@@ -161,7 +161,7 @@ def train():
                     env.step(action_combination)
                 )
 
-                if episode % 10 == 0 or episode == 1:  # Only log every step every 10 episodes
+                if episode % 100 == 0 or episode == 1:  # Only log every step every 10 episodes
                     logger.log_every_step(cur_board, cur_board_no_piece, episode, time_count, reward_components)
                 next_state_simple = simplify_board(next_state)
 

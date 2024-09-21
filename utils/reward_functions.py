@@ -38,9 +38,9 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
 
     # Weights for the metrics
     weights = {
-        "holes": -10.0,  # Penalize increase in holes
-        "max_height": -5.0,  # Penalize increase in max height
-        "bumpiness": -1.0,  # Penalize increase in bumpiness
+        "holes": -0.10,  # Penalize increase in holes
+        "max_height": -10.0,  # Penalize increase in max height
+        "bumpiness": -2.0,  # Penalize increase in bumpiness
     }
 
     # Decay rate for older states
