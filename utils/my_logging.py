@@ -48,15 +48,15 @@ class ResizeVideoOutput(gym.Wrapper):
         self.board_history.append(board_state.copy())
         lines_cleared = info.get("lines_cleared", 0)
         self.lines_cleared_history.append(lines_cleared)
-        print(info)
+
         # Calculate custom reward
-        reward, reward_components = calculate_reward(
+        reward, reward_components, (cur_board, cur_board_no_piece) = calculate_reward(
             self.board_history, self.lines_cleared_history, done, self.time_count
         )
         self.total_reward += reward
         self.reward_components = reward_components
 
-        return obs, (reward, reward_components), terminated, truncated, info
+        return obs, (reward, reward_components, (cur_board, cur_board_no_piece)), terminated, truncated, info
 
     def reset(self, **kwargs):
         self.total_reward = 0
@@ -179,6 +179,15 @@ class LoggingManager:
             env, video_folder=video_dir, episode_trigger=lambda episode_id: episode_id % video_every_n_episodes == 0
         )
         return env
+
+    def log_every_step(
+        self, cur_board, cur_board_no_piece, episode: int, step: int, reward_components: dict[str, int]
+    ):
+        self.logger.info(f"episode: {episode}, step: {step}")
+        self.logger.info(reward_components)
+        foo = "\n"
+        self.logger.info(f"{episode=}{step=}{foo}{cur_board}")
+        self.logger.info(f"Fall piece Removed{foo}{cur_board_no_piece}")
 
     # Modify the logger to log video paths
     def log_video_recording(self, episode: int):

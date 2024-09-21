@@ -1,5 +1,6 @@
 # tetris-ai-models\utils\reward_functions.py
 import numpy as np
+from scipy import ndimage
 
 
 def calculate_reward(board_history, lines_cleared_history, game_over, time_count, window_size=5):
@@ -45,8 +46,10 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
     # Decay rate for older states
     decay_rate = 0.8  # Adjust between 0 and 1; lower means faster decay
 
+    board_without_piece_history = [remove_floating_blocks(board) for board in board_history]
+
     # 3. Rolling Board Comparison with Decaying Weights
-    recent_boards = list(board_history)[-window_size:]
+    recent_boards = list(board_without_piece_history)[-window_size:]
     cumulative_metrics_diff = {"holes": 0.0, "max_height": 0.0, "bumpiness": 0.0}
 
     n = len(recent_boards)
@@ -96,8 +99,8 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
 
     # Total reward
     total_reward = (
-        survival_reward
-        + lines_cleared_reward
+        # survival_reward
+        +lines_cleared_reward
         + holes_reward
         + max_height_reward
         + bumpiness_reward
@@ -115,7 +118,37 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
         "total_reward": total_reward,
     }
 
-    return total_reward, reward_components
+    return total_reward, reward_components, (board_history[-1], board_without_piece_history[-1])
+
+
+def remove_floating_blocks(board):
+    """
+    Removes floating blocks (including the falling piece) from the board.
+
+    Args:
+        board (np.ndarray): The simplified board (binary, 0 for empty, 1 for blocks).
+
+    Returns:
+        np.ndarray: Board with only settled pieces.
+    """
+    # Label connected components
+    labeled_board, num_features = ndimage.label(board)
+
+    # Create a mask for settled pieces connected to the bottom
+    width, height = board.shape
+    connected_to_bottom = np.zeros_like(board, dtype=bool)
+
+    # Check bottom row for pieces
+    bottom_labels = set(labeled_board[:, -1]) - {0}
+
+    # Mark all blocks with labels found in the bottom row
+    for label in bottom_labels:
+        connected_to_bottom |= labeled_board == label
+
+    # Use the mask to keep only settled blocks and remove floating ones
+    settled_board = board * connected_to_bottom
+
+    return settled_board
 
 
 def calculate_board_metrics(board):
@@ -126,7 +159,7 @@ def calculate_board_metrics(board):
         board (np.ndarray): Simplified board with shape (height, width).
 
     Returns:
-        dict: Metrics including max height, number of holes, and bumpiness.
+        dict: Metrics including max height`, number of holes, and bumpiness.
     """
     heights = np.array([board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in board.T])
     max_height = np.max(heights)

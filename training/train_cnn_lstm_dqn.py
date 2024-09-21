@@ -143,8 +143,9 @@ def train():
                 "bumpiness_reward": 0.0,
                 "game_over_penalty": 0.0,
             }
-            # time_count = -1
+            time_count = -1
             while not done:
+                time_count += 1
                 state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
 
                 action, eps_threshold, step_q_values = select_action(
@@ -156,13 +157,17 @@ def train():
                     q_values.append(step_q_values.cpu().numpy())
 
                 action_combination = ACTION_COMBINATIONS.get(action, [7])
-                next_state, (reward, reward_components), terminated, truncated, _ = env.step(action_combination)
+                next_state, (reward, reward_components, (cur_board, cur_board_no_piece)), terminated, truncated, _ = (
+                    env.step(action_combination)
+                )
                 next_state_simple = simplify_board(next_state)
                 episode_steps += 1
                 total_reward += reward
                 # Accumulate reward components
                 for key in episode_reward_components.keys():
                     episode_reward_components[key] += reward_components.get(key, 0.0)
+
+                # logger.log_every_step(cur_board, cur_board_no_piece, episode, time_count, reward_components)
                 done = terminated or truncated
 
                 # Update state
