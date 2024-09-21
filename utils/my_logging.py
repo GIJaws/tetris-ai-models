@@ -28,6 +28,14 @@ class ResizeVideoOutput(gym.Wrapper):
         self.board_history = deque(maxlen=5)
         self.lines_cleared_history = deque(maxlen=5)
         self.time_count = -1
+        self.reward_components = {
+            "survival_reward": 0,
+            "lines_cleared_reward": 0,
+            "holes_reward": 0,
+            "max_height_reward": 0,
+            "bumpiness_reward": 0,
+            "total_reward": 0,
+        }
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
@@ -40,12 +48,13 @@ class ResizeVideoOutput(gym.Wrapper):
         self.board_history.append(board_state.copy())
         lines_cleared = info.get("lines_cleared", 0)
         self.lines_cleared_history.append(lines_cleared)
-
+        print(info)
         # Calculate custom reward
         reward, reward_components = calculate_reward(
             self.board_history, self.lines_cleared_history, done, self.time_count
         )
         self.total_reward += reward
+        self.reward_components = reward_components
 
         return obs, (reward, reward_components), terminated, truncated, info
 
@@ -60,7 +69,7 @@ class ResizeVideoOutput(gym.Wrapper):
 
     def render(self, mode="rgb_array", **kwargs):
         frame = self.env.render(**kwargs)
-        font_scale = 1
+        font_scale = 0.8
         if mode == "rgb_array":
 
             # Resize the frame for video recording
@@ -95,6 +104,18 @@ class ResizeVideoOutput(gym.Wrapper):
                 (255, 255, 255),
                 2,
             )
+            foo = 140
+            for k, v in self.reward_components.items():
+                cv2.putText(
+                    frame,
+                    f"{k}:{v:.2f}",
+                    (10, foo),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    font_scale,
+                    (255, 255, 255),
+                    2,
+                )
+                foo += 30
             # Convert back to RGB (if necessary)
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         return frame
