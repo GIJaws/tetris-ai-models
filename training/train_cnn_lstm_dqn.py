@@ -20,17 +20,17 @@ from utils.my_logging import LoggingManager
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Hyperparameters
-BATCH_SIZE = 64
-GAMMA = 0.99
-EPS_START = 1.0
-EPS_END = 0.01
-EPS_DECAY = 200000
-TARGET_UPDATE = 250
-MEMORY_SIZE = 100000
-LEARNING_RATE = 1e-3
-NUM_EPISODES = 10000
-SEQUENCE_LENGTH = 50
-HISTORY_LENGTH = 100
+BATCH_SIZE = 128  # Increased from 64
+GAMMA = 0.99  # This is good
+EPS_START = 1.0  # This is good
+EPS_END = 0.05  # Increased from 0.01
+EPS_DECAY = 100000  # Decreased from 200000
+TARGET_UPDATE = 1000  # Increased from 250
+MEMORY_SIZE = 100000  # This is good
+LEARNING_RATE = 3e-4  # Decreased from 1e-3
+NUM_EPISODES = 50000  # Increased from 10000
+SEQUENCE_LENGTH = 4  # Decreased from 5
+HISTORY_LENGTH = 4  # Decreased from 5
 
 
 class ReplayMemory:

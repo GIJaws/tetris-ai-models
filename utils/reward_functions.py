@@ -18,175 +18,75 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
         float: Total reward.
         dict: Dictionary of individual reward components.
     """
-    # Get the current board state (most recent in history)
     current_board = board_history[-1]
-
-    # Remove floating blocks (including the current falling piece)
     settled_board = remove_floating_blocks(current_board)
 
-    # Calculate basic metrics
+    # Calculate metrics
     heights = np.sum(settled_board, axis=0)
     max_height = np.max(heights)
     bumpiness = np.sum(np.abs(np.diff(heights)))
-    holes = np.sum((settled_board == 0) & (np.cumsum(settled_board, axis=0) > 0))
+    holes = count_holes(settled_board)
 
-    # Lines cleared in the most recent move
+    # Previous board metrics (if available)
+    if len(board_history) > 1:
+        prev_board = remove_floating_blocks(board_history[-2])
+        prev_holes = count_holes(prev_board)
+        prev_max_height = np.max(np.sum(prev_board, axis=0))
+        prev_bumpiness = np.sum(np.abs(np.diff(np.sum(prev_board, axis=0))))
+    else:
+        prev_holes = holes
+        prev_max_height = max_height
+        prev_bumpiness = bumpiness
+
     lines_cleared = lines_cleared_history[-1] if lines_cleared_history else 0
 
     # Reward components
     height_penalty = -0.51 * max_height
-    hole_penalty = -1.13 * holes
-    bumpiness_penalty = -0.18 * bumpiness
+    hole_penalty = -1 * holes
     lines_cleared_reward = 8.0 * lines_cleared
-    survival_reward = 0.01 * time_count  # Small reward for surviving each step
-
-    # Game over penalty
     game_over_penalty = -8.0 if game_over else 0
 
-    # Calculate total reward
+    # Improvement rewards
+    height_improvement = 0.25 * max(0, prev_max_height - max_height)
+    hole_improvement = 0.5 * max(0, prev_holes - holes)
+    bumpiness_improvement = 0.1 * max(0, prev_bumpiness - bumpiness)
+
     total_reward = (
         height_penalty
         + hole_penalty
-        # + bumpiness_penalty
         + lines_cleared_reward
         + game_over_penalty
-        # survival_reward +
+        + height_improvement
+        + hole_improvement
+        + bumpiness_improvement
     )
 
-    # Collect reward components in a dictionary
     reward_components = {
         "height_penalty": height_penalty,
         "hole_penalty": hole_penalty,
-        "bumpiness_penalty": bumpiness_penalty,
         "lines_cleared_reward": lines_cleared_reward,
-        "survival_reward": survival_reward,
         "game_over_penalty": game_over_penalty,
+        "height_improvement": height_improvement,
+        "hole_improvement": hole_improvement,
+        "bumpiness_improvement": bumpiness_improvement,
         "total_reward": total_reward,
     }
 
     return total_reward, reward_components, (current_board, settled_board)
 
 
-def calculate_reward_OLD(board_history, lines_cleared_history, game_over, time_count, window_size=5):
-    """
-    Calculate the reward based on the history of board states and lines cleared.
-
-    Args:
-        board_history (deque): History of board states (each as 2D numpy arrays).
-        lines_cleared_history (deque): History of lines cleared per step.
-        game_over (bool): Flag indicating if the game has ended.
-        time_count (int): Number of time steps survived.
-        window_size (int): Number of recent states to consider for rolling comparison.
-
-    Returns:
-        float: Total reward.
-        dict: Dictionary of individual reward components.
-    """
-    # Initialize reward components
-    survival_reward = 0
-    lines_cleared_reward = 0
-    holes_reward = 0
-    max_height_reward = 0
-    bumpiness_reward = 0
-    game_over_penalty = 0
-    avg_height = 0
-    # 1. Survival Reward
-    survival_reward = min(100, time_count * 0.01)  # Capped to prevent excessive rewards
-
-    # 2. Reward for Lines Cleared
-    # Calculate total lines cleared in the current step
-    total_lines_cleared = sum(lines_cleared_history)
-    lines_cleared_reward = total_lines_cleared * 100  # Base reward per line
-    if total_lines_cleared > 1:
-        lines_cleared_reward += (total_lines_cleared - 1) * 50  # Bonus for multiple lines
-
-    # Weights for the metrics
-    weights = {
-        "holes": -1,  # Penalize increase in holes
-        "max_height": -0.10,  # Penalize increase in max height
-        "bumpiness": -0.10,  # Penalize increase in bumpiness
-        "avg_height": 1,
-    }
-
-    # Decay rate for older states
-    decay_rate = 0.1  # Adjust between 0 and 1; lower means faster decay
-
-    board_without_piece_history = [remove_floating_blocks(board) for board in board_history]
-
-    # 3. Rolling Board Comparison with Decaying Weights
-    recent_boards = list(board_without_piece_history)[-window_size:]
-    cumulative_metrics_diff = {metric: 0.0 for metric in weights}
-
-    n = len(recent_boards)
-    for i in range(1, n):
-        prev_board = recent_boards[i - 1]
-        current_board = recent_boards[i]
-
-        prev_metrics = calculate_board_metrics(prev_board)
-        current_metrics = calculate_board_metrics(current_board)
-
-        # Calculate differences
-        diff = {metric: current_metrics[metric] - prev_metrics[metric] for metric in weights.keys()}
-
-        # Apply decay weight (more recent differences have higher weight)
-        decay_weight = decay_rate ** (i - 1)
-
-        # Accumulate weighted differences
-        for metric in weights.keys():
-            cumulative_metrics_diff[metric] += decay_weight * diff[metric]
-
-    # Apply penalties or rewards per metric with caps
-    max_component_reward = 50  # Adjust as needed to prevent stacking
-    for metric, total_diff in cumulative_metrics_diff.items():
-        if total_diff < 0:
-            # Improvement: decrease in metric
-            component_reward = abs(total_diff) * abs(weights[metric]) * 0.5  # Reward half the improvement
-        elif total_diff > 0:
-            # Deterioration: increase in metric
-            component_reward = total_diff * weights[metric]  # Apply penalty
-        else:
-            component_reward = 0
-
-        # Cap the contribution from this component
-        component_reward = np.clip(component_reward, -max_component_reward, max_component_reward)
-
-        # Add to component rewards
-        if metric == "holes":
-            holes_reward += component_reward
-        elif metric == "max_height":
-            max_height_reward += component_reward
-        elif metric == "bumpiness":
-            bumpiness_reward += component_reward
-        elif metric == "avg_height":
-            avg_height += component_reward
-
-    # 4. Penalty for Game Over
-    if game_over:
-        game_over_penalty = float("-inf")  # TODO is -inf to much??
-
-    # Total reward
-    total_reward = (
-        survival_reward
-        + lines_cleared_reward
-        # + holes_reward
-        + max_height_reward
-        + bumpiness_reward
-        + game_over_penalty
-    )
-
-    # Collect reward components in a dictionary
-    reward_components = {
-        "survival_reward": survival_reward,
-        "lines_cleared_reward": lines_cleared_reward,
-        "holes_reward": holes_reward,
-        "max_height_reward": max_height_reward,
-        "avg_height": avg_height,
-        "bumpiness_reward": bumpiness_reward,
-        # "game_over_penalty": game_over_penalty,
-        "total_reward": total_reward,
-    }
-
-    return total_reward, reward_components, (board_history[-1], board_without_piece_history[-1])
+def count_holes(board):
+    holes = 0
+    num_cols, num_rows = board.shape
+    for col in range(num_cols):
+        block_found = False
+        for row in range(num_rows):
+            cell = board[col, row]
+            if cell != 0:
+                block_found = True
+            elif block_found and cell == 0:
+                holes += 1
+    return holes
 
 
 def remove_floating_blocks(board):
@@ -201,6 +101,8 @@ def remove_floating_blocks(board):
     """
     # Label connected components
     labeled_board, num_features = ndimage.label(board)
+    # TODO Do we even need to use ndimage.label,
+    #  TODO pretty sure it shouldn't matter but should check when I'm not about to go to sleep
 
     # Create a mask for settled pieces connected to the bottom
     connected_to_bottom = np.zeros_like(board, dtype=bool)
