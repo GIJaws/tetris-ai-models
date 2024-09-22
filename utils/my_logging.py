@@ -51,6 +51,7 @@ class ResizeVideoOutput(gym.Wrapper):
         self.total_reward = 0
         self.total_lines_cleared = 0
         self.board_history.clear()
+        self.detailed_info = {}
         self.lines_cleared_history.clear()
         return self.env.reset(**kwargs)
 
