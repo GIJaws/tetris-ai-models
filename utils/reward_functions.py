@@ -42,7 +42,7 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
 
     # Reward components
     height_penalty = -0.51 * max_height
-    hole_penalty = -1 * holes
+    hole_penalty = -1.13 * holes
     lines_cleared_reward = 8.0 * lines_cleared
     game_over_penalty = -8.0 if game_over else 0
 
