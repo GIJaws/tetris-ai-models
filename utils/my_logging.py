@@ -43,11 +43,12 @@ class ResizeVideoOutput(gym.Wrapper):
         self.lines_cleared_history.append(info.get("lines_cleared", 0))
 
         # Calculate custom reward
-        reward, detailed_info = calculate_reward(self.board_history, self.lines_cleared_history, done, self.time_step)
+        reward, self.detailed_info = calculate_reward(
+            self.board_history, self.lines_cleared_history, done, self.time_step, info
+        )
         self.total_reward += reward
-        self.detailed_info = detailed_info
 
-        return obs, (reward, detailed_info), terminated, truncated, info
+        return obs, reward, terminated, truncated, info
 
     def reset(self, **kwargs):
         self.total_reward = 0
@@ -76,7 +77,7 @@ class ResizeVideoOutput(gym.Wrapper):
             # Add text
             cv2.putText(
                 frame,
-                f"Total Chicken Sum Reward: {self.total_reward:.3f}",
+                f"Chicken Sum Reward: {self.total_reward:.3f}",
                 (10, foo),
                 self.font,
                 font_scale,
@@ -99,7 +100,7 @@ class ResizeVideoOutput(gym.Wrapper):
             for k, v in ({"    Stats": []} | self.detailed_info.get("current_stats", {})).items():
                 cv2.putText(
                     frame,
-                    f"{k}:{format_value(v)}",
+                    f"{k}: {format_value(v)}",
                     (10, foo),
                     self.font,
                     font_scale,
@@ -111,7 +112,7 @@ class ResizeVideoOutput(gym.Wrapper):
             for k, v in ({"    Rewards": []} | self.detailed_info.get("rewards", {})).items():
                 cv2.putText(
                     frame,
-                    f"{k}:{format_value(v)}",
+                    f"{k}: {format_value(v)}",
                     (10, foo),
                     self.font,
                     font_scale,

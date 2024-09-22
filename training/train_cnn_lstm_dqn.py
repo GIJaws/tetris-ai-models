@@ -134,10 +134,10 @@ def train():
 
             state_deque = deque([state] * SEQUENCE_LENGTH, maxlen=SEQUENCE_LENGTH)
             done = False
-            total_reward = 0
+            total_reward: float = 0.0
             loss = None
             q_values = []
-            episode_steps = 0
+            episode_steps: int = 0
 
             current_episode_action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
             episode_reward_components = {}
@@ -154,19 +154,20 @@ def train():
                 if step_q_values is not None:
                     q_values.append(step_q_values.cpu().numpy())
 
-                next_state, (reward, detailed_info), terminated, truncated, _ = env.step(ACTION_COMBINATIONS[action])
+                next_state, reward, terminated, truncated, info = env.step(ACTION_COMBINATIONS[action])
+                done = terminated or truncated
+
+                detailed_info = info.get("detailed_info", {})
                 next_state = simplify_board(next_state)
 
-                if episode % 100 == 0 or episode == 1:  # Only log every step every 10 episodes
-                    logger.log_every_step(episode, time_count, detailed_info)
+                # if episode % 100 == 0 or episode == 1:  # Only log every step every 10 episodes
+                # logger.log_every_step(episode, time_count, detailed_info)
 
                 episode_steps += 1
                 total_reward += reward
                 # Accumulate reward components
                 for key, value in detailed_info.get("rewards", {}).items():
                     episode_reward_components[key] = episode_reward_components.get(key, 0) + value
-
-                done = terminated or truncated
 
                 # Update state
                 state_deque.append(next_state)

@@ -2,7 +2,7 @@ import numpy as np
 from scipy import ndimage
 
 
-def calculate_reward(board_history, lines_cleared_history, game_over, time_count, window_size=5):
+def calculate_reward(board_history, lines_cleared_history, done, time_count, info, window_size=5):
     """
     Calculate the reward and detailed statistics based on the history of board states and lines cleared.
 
@@ -21,12 +21,12 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
     settled_board = remove_floating_blocks(current_board)
 
     # Calculate current board statistics
-    current_stats = calculate_board_statistics(settled_board)
+    current_stats = calculate_board_statistics(settled_board, info)
 
     # Calculate previous board statistics (if available)
     if len(board_history) > 1:
         prev_board = remove_floating_blocks(board_history[-2])
-        prev_stats = calculate_board_statistics(prev_board)
+        prev_stats = calculate_board_statistics(prev_board, info.get("prev_info", {}))
     else:
         prev_stats = current_stats.copy()
 
@@ -34,7 +34,7 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
     lines_cleared = lines_cleared_history[-1] if lines_cleared_history else 0
 
     # Calculate rewards
-    rewards = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over)
+    rewards = calculate_rewards(current_stats, prev_stats, lines_cleared, done)
     total_reward = sum(rewards.values())
 
     # Combine statistics and rewards
@@ -55,7 +55,7 @@ def get_column_heights(board):
     return np.where(non_zero_mask.any(axis=1), heights, 0)
 
 
-def calculate_board_statistics(board):
+def calculate_board_statistics(board, info):
     """Calculate detailed statistics for a given board state."""
     heights = get_column_heights(board)
 
@@ -71,13 +71,16 @@ def calculate_board_statistics(board):
         "well_depth": calculate_well_depth(board),
         "column_transitions": calculate_column_transitions(board),
         "row_transitions": calculate_row_transitions(board),
+        "lives_left": info.get("lives_left", 0),
+        "deaths": info.get("deaths", 0),
+        "level": info.get("level", 0),
     }
 
 
 def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over):
     """Calculate reward components based on current and previous statistics."""
     return {
-        "height_penalty": -0.51 * current_stats["max_height"],
+        "height_penalty": -0.51 * current_stats["max_height"] if current_stats["max_height"] > 15 else 0,
         "hole_penalty": -1.13 * current_stats["holes"],
         "lines_cleared_reward": 8.0 * lines_cleared,
         "game_over_penalty": -800.0 if game_over else 0,
