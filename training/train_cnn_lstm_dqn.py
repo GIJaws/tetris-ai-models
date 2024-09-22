@@ -20,7 +20,7 @@ from utils.my_logging import LoggingManager
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Hyperparameters
-BATCH_SIZE = 128  # 128
+BATCH_SIZE = 256  # 128
 GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
