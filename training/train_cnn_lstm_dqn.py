@@ -20,20 +20,20 @@ from utils.my_logging import LoggingManager
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Hyperparameters
-BATCH_SIZE = 2  # 128
+BATCH_SIZE = 16  # 128
 GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
 EPS_DECAY = 100000  # Decreased from 200000
 TARGET_UPDATE = 1000  # 1000
 MEMORY_SIZE = 100000
-LEARNING_RATE = 1e-5  # Decreased from 1e-3
-NUM_EPISODES = 1  # 50000
-SEQUENCE_LENGTH = 5  # Decreased from 4
-HISTORY_LENGTH = 2  # Decreased from 4
+LEARNING_RATE = 1e-4  # Decreased from 1e-3
+NUM_EPISODES = 50000
+SEQUENCE_LENGTH = 10
+HISTORY_LENGTH = 2
 
 # LOGGING PARAMS
-LOG_EPISODE_INTERVAL = 1
+LOG_EPISODE_INTERVAL = 25
 
 
 class ReplayMemory:
@@ -82,7 +82,7 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     # Optimize the model
     optimizer.zero_grad()
     loss.backward()
-    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
+    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 200)
     optimizer.step()
 
     return loss.item()
@@ -141,9 +141,7 @@ def train():
 
             current_episode_action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
             episode_reward_components = {}
-            time_count = -1
             while not done:
-                time_count += 1
                 state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
 
                 action, eps_threshold, step_q_values = select_action(
@@ -159,9 +157,6 @@ def train():
 
                 detailed_info = info.get("detailed_info", {})
                 next_state = simplify_board(next_state)
-
-                # if episode % 100 == 0 or episode == 1:  # Only log every step every 10 episodes
-                # logger.log_every_step(episode, time_count, detailed_info)
 
                 episode_steps += 1
                 total_reward += reward

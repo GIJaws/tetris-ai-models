@@ -22,7 +22,6 @@ class ResizeVideoOutput(gym.Wrapper):
         # Initialize stats
         self.total_reward = 0
         self.total_lines_cleared = 0
-        self.time_step = 0
         # For reward calculation
         self.board_history = deque(maxlen=5)
         self.lines_cleared_history = deque(maxlen=5)
@@ -33,7 +32,6 @@ class ResizeVideoOutput(gym.Wrapper):
     def step(self, action):
         self.actions = action
         obs, reward, terminated, truncated, info = self.env.step(action)
-        self.time_step += 1
         done = terminated or truncated
 
         # Update board and lines cleared history
@@ -43,10 +41,9 @@ class ResizeVideoOutput(gym.Wrapper):
         self.lines_cleared_history.append(info.get("lines_cleared", 0))
 
         # Calculate custom reward
-        reward, self.detailed_info = calculate_reward(
-            self.board_history, self.lines_cleared_history, done, self.time_step, info
-        )
+        reward, self.detailed_info = calculate_reward(self.board_history, self.lines_cleared_history, done, info)
         self.total_reward += reward
+        info["detailed_info"] = self.detailed_info
 
         return obs, reward, terminated, truncated, info
 
@@ -55,7 +52,6 @@ class ResizeVideoOutput(gym.Wrapper):
         self.total_lines_cleared = 0
         self.board_history.clear()
         self.lines_cleared_history.clear()
-        self.time_step = -1
         return self.env.reset(**kwargs)
 
     def render(self, mode="rgb_array", **kwargs):
@@ -78,17 +74,6 @@ class ResizeVideoOutput(gym.Wrapper):
             cv2.putText(
                 frame,
                 f"Chicken Sum Reward: {self.total_reward:.3f}",
-                (10, foo),
-                self.font,
-                font_scale,
-                (255, 255, 255),
-                2,
-            )
-            foo += 30
-
-            cv2.putText(
-                frame,
-                f"Time Step: {self.time_step}",
                 (10, foo),
                 self.font,
                 font_scale,

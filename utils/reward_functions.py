@@ -2,7 +2,7 @@ import numpy as np
 from scipy import ndimage
 
 
-def calculate_reward(board_history, lines_cleared_history, done, time_count, info, window_size=5):
+def calculate_reward(board_history, lines_cleared_history, done, info, window_size=5):
     """
     Calculate the reward and detailed statistics based on the history of board states and lines cleared.
 
@@ -10,7 +10,6 @@ def calculate_reward(board_history, lines_cleared_history, done, time_count, inf
         board_history (deque): History of board states (each as 2D numpy arrays).
         lines_cleared_history (deque): History of lines cleared per step.
         game_over (bool): Flag indicating if the game has ended.
-        time_count (int): Number of time steps survived.
         window_size (int): Number of recent states to consider.
 
     Returns:
@@ -36,13 +35,11 @@ def calculate_reward(board_history, lines_cleared_history, done, time_count, inf
     # Calculate rewards
     rewards = calculate_rewards(current_stats, prev_stats, lines_cleared, done)
     total_reward = sum(rewards.values())
-
+    rewards["Total_Reward"] = sum(rewards.values())
     # Combine statistics and rewards
     detailed_info = {
         "current_stats": current_stats,
-        "prev_stats": prev_stats,
         "lines_cleared": lines_cleared,
-        "time_survived": time_count,
         "rewards": rewards,
     }
 
@@ -60,17 +57,18 @@ def calculate_board_statistics(board, info):
     heights = get_column_heights(board)
 
     return {
+        "time": info.get("time", 0),
         "max_height": np.max(heights),
         "avg_height": np.mean(heights),
         "min_height": np.min(heights),
         "heights": heights.tolist(),
-        "height len": len(heights),
         "holes": count_holes(board),
         "bumpiness": np.sum(np.abs(np.diff(heights))),
         "density": np.sum(board) / (board.shape[0] * board.shape[1]),
-        "well_depth": calculate_well_depth(board),
-        "column_transitions": calculate_column_transitions(board),
-        "row_transitions": calculate_row_transitions(board),
+        "max_height_density": np.sum(board) / max(1, (board.shape[0] * np.max(heights))),
+        # "well_depth": calculate_well_depth(board),
+        # "column_transitions": calculate_column_transitions(board),
+        # "row_transitions": calculate_row_transitions(board),
         "lives_left": info.get("lives_left", 0),
         "deaths": info.get("deaths", 0),
         "level": info.get("level", 0),
@@ -80,17 +78,19 @@ def calculate_board_statistics(board, info):
 def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over):
     """Calculate reward components based on current and previous statistics."""
     return {
-        "height_penalty": -0.51 * current_stats["max_height"] if current_stats["max_height"] > 15 else 0,
-        "hole_penalty": -1.13 * current_stats["holes"],
+        "height_penalty": -10 * current_stats["max_height"] if current_stats["max_height"] > 15 else 0,
+        "hole_penalty": -10 * current_stats["holes"],
         "lines_cleared_reward": 8.0 * lines_cleared,
-        "game_over_penalty": -800.0 if game_over else 0,
-        "height_improvement": 1 * max(0, prev_stats["max_height"] - current_stats["max_height"]),
-        "hole_improvement": 1 * max(0, prev_stats["holes"] - current_stats["holes"]),
-        "bumpiness_improvement": 1 * max(0, prev_stats["bumpiness"] - current_stats["bumpiness"]),
-        "density_reward": 0.5 * (current_stats["density"] - prev_stats["density"]),
-        "well_depth_penalty": -0.3 * current_stats["well_depth"],
-        "column_transitions_penalty": -0.2 * current_stats["column_transitions"],
-        "row_transitions_penalty": -0.1 * current_stats["row_transitions"],
+        "game_over_penalty": -2000.0 if game_over else 0,
+        "lost_a_life": -800 if prev_stats["lives_left"] > current_stats["lives_left"] else 0,
+        "max_height_increased": 10 * (prev_stats["max_height"] - current_stats["max_height"]),
+        "hole_improvement": 10 * (prev_stats["holes"] - current_stats["holes"]),
+        "bumpiness_improvement": 10 * (prev_stats["bumpiness"] - current_stats["bumpiness"]),
+        # "well_depth_penalty": -0.3 * current_stats["well_depth"],
+        # "column_transitions_penalty": -0.2 * current_stats["column_transitions"],
+        # "row_transitions_penalty": -0.1 * current_stats["row_transitions"],
+        "max_height_density": 5 * current_stats["max_height_density"],
+        "max_height_density_penalty": -100 * (current_stats["max_height_density"] - prev_stats["max_height_density"]),
     }
 
 
@@ -153,26 +153,3 @@ def remove_floating_blocks(board):
     settled_board = board * connected_to_bottom
 
     return settled_board
-
-
-def calculate_board_metrics(board):
-    """
-    Calculate key metrics from the board state.
-
-    Args:
-        board (np.ndarray): Simplified board with shape (height, width).
-
-    Returns:
-        dict: Metrics including max height`, number of holes, and bumpiness.
-    """
-    heights = np.array([board.shape[0] - np.argmax(column) if np.any(column) else 0 for column in board.T])
-    max_height = np.max(heights)
-    avg_height = np.mean(heights)
-    holes = sum(
-        np.sum(~board[np.argmax(board[:, x] != 0) :, x].astype(bool))
-        for x in range(board.shape[1])
-        if np.any(board[:, x])
-    )
-    bumpiness = np.sum(np.abs(np.diff(heights)))
-
-    return {"max_height": max_height, "holes": holes, "bumpiness": bumpiness, "avg_height": avg_height}
