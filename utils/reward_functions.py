@@ -58,8 +58,6 @@ def get_column_heights(board):
 def calculate_board_statistics(board):
     """Calculate detailed statistics for a given board state."""
     heights = get_column_heights(board)
-    if heights.sum() > 10:
-        breakpoint()
 
     return {
         "max_height": np.max(heights),
