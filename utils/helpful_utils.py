@@ -88,3 +88,9 @@ def simplify_board(board):
     """
     # Assuming board shape is (10, 40, 3)
     return np.any(board != 0, axis=2).astype(np.float32)
+
+
+def format_value(v):
+    if isinstance(v, list):
+        return ", ".join([format_value(x) for x in v])
+    return f"{v:.0f}" if isinstance(v, int) or v.is_integer() else f"{v:.3f}"

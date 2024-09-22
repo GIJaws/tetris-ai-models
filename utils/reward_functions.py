@@ -1,78 +1,103 @@
-# tetris-ai-models\utils\reward_functions.py
 import numpy as np
 from scipy import ndimage
 
 
 def calculate_reward(board_history, lines_cleared_history, game_over, time_count, window_size=5):
     """
-    Calculate the reward based on the history of board states and lines cleared.
+    Calculate the reward and detailed statistics based on the history of board states and lines cleared.
 
     Args:
         board_history (deque): History of board states (each as 2D numpy arrays).
         lines_cleared_history (deque): History of lines cleared per step.
         game_over (bool): Flag indicating if the game has ended.
         time_count (int): Number of time steps survived.
-        window_size (int): Number of recent states to consider (not used in this version).
+        window_size (int): Number of recent states to consider.
 
     Returns:
         float: Total reward.
-        dict: Dictionary of individual reward components.
+        dict: Dictionary of detailed statistics and reward components.
     """
     current_board = board_history[-1]
     settled_board = remove_floating_blocks(current_board)
 
-    # Calculate metrics
-    heights = np.sum(settled_board, axis=0)
-    max_height = np.max(heights)
-    bumpiness = np.sum(np.abs(np.diff(heights)))
-    holes = count_holes(settled_board)
+    # Calculate current board statistics
+    current_stats = calculate_board_statistics(settled_board)
 
-    # Previous board metrics (if available)
+    # Calculate previous board statistics (if available)
     if len(board_history) > 1:
         prev_board = remove_floating_blocks(board_history[-2])
-        prev_holes = count_holes(prev_board)
-        prev_max_height = np.max(np.sum(prev_board, axis=0))
-        prev_bumpiness = np.sum(np.abs(np.diff(np.sum(prev_board, axis=0))))
+        prev_stats = calculate_board_statistics(prev_board)
     else:
-        prev_holes = holes
-        prev_max_height = max_height
-        prev_bumpiness = bumpiness
+        prev_stats = current_stats.copy()
 
+    # Calculate lines cleared
     lines_cleared = lines_cleared_history[-1] if lines_cleared_history else 0
 
-    # Reward components
-    height_penalty = -0.51 * max_height
-    hole_penalty = -1.13 * holes
-    lines_cleared_reward = 8.0 * lines_cleared
-    game_over_penalty = -8.0 if game_over else 0
+    # Calculate rewards
+    rewards = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over)
+    total_reward = sum(rewards.values())
 
-    # Improvement rewards
-    height_improvement = 0.25 * max(0, prev_max_height - max_height)
-    hole_improvement = 0.5 * max(0, prev_holes - holes)
-    bumpiness_improvement = 0.1 * max(0, prev_bumpiness - bumpiness)
-
-    total_reward = (
-        height_penalty
-        + hole_penalty
-        + lines_cleared_reward
-        + game_over_penalty
-        + height_improvement
-        + hole_improvement
-        + bumpiness_improvement
-    )
-
-    reward_components = {
-        "height_penalty": height_penalty,
-        "hole_penalty": hole_penalty,
-        "lines_cleared_reward": lines_cleared_reward,
-        "game_over_penalty": game_over_penalty,
-        "height_improvement": height_improvement,
-        "hole_improvement": hole_improvement,
-        "bumpiness_improvement": bumpiness_improvement,
-        "total_reward": total_reward,
+    # Combine statistics and rewards
+    detailed_info = {
+        "current_stats": current_stats,
+        "prev_stats": prev_stats,
+        "lines_cleared": lines_cleared,
+        "time_survived": time_count,
+        "rewards": rewards,
     }
 
-    return total_reward, reward_components, (current_board, settled_board)
+    return total_reward, detailed_info
+
+
+def calculate_board_statistics(board):
+    """Calculate detailed statistics for a given board state."""
+    heights = np.sum(board, axis=1)
+    return {
+        "max_height": np.max(heights),
+        "avg_height": np.mean(heights),
+        "min_height": np.min(heights),
+        "heights": heights.tolist(),
+        "height len": len(heights),
+        "holes": count_holes(board),
+        "bumpiness": np.sum(np.abs(np.diff(heights))),
+        "density": np.sum(board) / (board.shape[0] * board.shape[1]),
+        "well_depth": calculate_well_depth(board),
+        "column_transitions": calculate_column_transitions(board),
+        "row_transitions": calculate_row_transitions(board),
+    }
+
+
+def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over):
+    """Calculate reward components based on current and previous statistics."""
+    return {
+        "height_penalty": -0.51 * current_stats["max_height"],
+        "hole_penalty": -1.13 * current_stats["holes"],
+        "lines_cleared_reward": 8.0 * lines_cleared,
+        "game_over_penalty": -800.0 if game_over else 0,
+        "height_improvement": 1 * max(0, prev_stats["max_height"] - current_stats["max_height"]),
+        "hole_improvement": 1 * max(0, prev_stats["holes"] - current_stats["holes"]),
+        "bumpiness_improvement": 1 * max(0, prev_stats["bumpiness"] - current_stats["bumpiness"]),
+        "density_reward": 0.5 * (current_stats["density"] - prev_stats["density"]),
+        "well_depth_penalty": -0.3 * current_stats["well_depth"],
+        "column_transitions_penalty": -0.2 * current_stats["column_transitions"],
+        "row_transitions_penalty": -0.1 * current_stats["row_transitions"],
+    }
+
+
+# Helper functions (implement these based on your specific needs)
+def calculate_well_depth(board):
+    # Calculate the depth of wells (deep gaps between columns)
+    return 0  # TODO THIS IS A STUB
+
+
+def calculate_column_transitions(board):
+    # Calculate the number of transitions between filled and empty cells in columns
+    return 0  # TODO THIS IS A STUB
+
+
+def calculate_row_transitions(board):
+    # Calculate the number of transitions between filled and empty cells in rows
+    return 0  # TODO THIS IS A STUB
 
 
 def count_holes(board):

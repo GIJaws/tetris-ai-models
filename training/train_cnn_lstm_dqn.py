@@ -20,17 +20,20 @@ from utils.my_logging import LoggingManager
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Hyperparameters
-BATCH_SIZE = 128  # Increased from 64
+BATCH_SIZE = 2  # 128
 GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
 EPS_DECAY = 100000  # Decreased from 200000
-TARGET_UPDATE = 1000  # Increased from 250
+TARGET_UPDATE = 1000  # 1000
 MEMORY_SIZE = 100000
 LEARNING_RATE = 1e-5  # Decreased from 1e-3
-NUM_EPISODES = 50000  # Increased from 10000
-SEQUENCE_LENGTH = 4  # Decreased from 5
-HISTORY_LENGTH = 4  # Decreased from 5
+NUM_EPISODES = 1  # 50000
+SEQUENCE_LENGTH = 5  # Decreased from 4
+HISTORY_LENGTH = 2  # Decreased from 4
+
+# LOGGING PARAMS
+LOG_EPISODE_INTERVAL = 1
 
 
 class ReplayMemory:
@@ -102,6 +105,7 @@ def train():
     render_mode = "rgb_array"
     env = gym.make("SimpleTetris-v0", render_mode=render_mode, initial_level=1)
 
+    # TODO NEED TO MOVE REWARD FUNCTION OUT OF THE LOGGER SO I CAN EASILY SWITCH IT OUT
     env = logger.setup_video_recording(env, video_every_n_episodes=50)  # Automate video recording
 
     n_actions = len(ACTION_COMBINATIONS)
@@ -121,6 +125,7 @@ def train():
 
     # Metrics tracking
     total_steps_done = 0
+    eps_threshold = EPS_START
 
     try:
         for episode in range(1, NUM_EPISODES + 1):
@@ -135,14 +140,7 @@ def train():
             episode_steps = 0
 
             current_episode_action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
-            episode_reward_components = {
-                "survival_reward": 0.0,
-                "lines_cleared_reward": 0.0,
-                "holes_reward": 0.0,
-                "max_height_reward": 0.0,
-                "bumpiness_reward": 0.0,
-                "game_over_penalty": 0.0,
-            }
+            episode_reward_components = {}
             time_count = -1
             while not done:
                 time_count += 1
@@ -156,25 +154,22 @@ def train():
                 if step_q_values is not None:
                     q_values.append(step_q_values.cpu().numpy())
 
-                action_combination = ACTION_COMBINATIONS.get(action, [7])
-                next_state, (reward, reward_components, (cur_board, cur_board_no_piece)), terminated, truncated, _ = (
-                    env.step(action_combination)
-                )
+                next_state, (reward, detailed_info), terminated, truncated, _ = env.step(ACTION_COMBINATIONS[action])
+                next_state = simplify_board(next_state)
 
                 if episode % 100 == 0 or episode == 1:  # Only log every step every 10 episodes
-                    logger.log_every_step(cur_board, cur_board_no_piece, episode, time_count, reward_components)
-                next_state_simple = simplify_board(next_state)
+                    logger.log_every_step(episode, time_count, detailed_info)
 
                 episode_steps += 1
                 total_reward += reward
                 # Accumulate reward components
-                for key in episode_reward_components.keys():
-                    episode_reward_components[key] += reward_components.get(key, 0.0)
+                for key, value in detailed_info.get("rewards", {}).items():
+                    episode_reward_components[key] = episode_reward_components.get(key, 0) + value
 
                 done = terminated or truncated
 
                 # Update state
-                state_deque.append(next_state_simple)
+                state_deque.append(next_state)
                 next_state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(
                     0
                 )
@@ -204,6 +199,7 @@ def train():
                 q_values=q_values,
                 action_count=current_episode_action_count,
                 reward_components=episode_reward_components,
+                log_interval=LOG_EPISODE_INTERVAL,
             )
 
             # Update target network

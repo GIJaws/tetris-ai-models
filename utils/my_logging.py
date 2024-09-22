@@ -4,19 +4,18 @@ import torch
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from logging.handlers import RotatingFileHandler
-from typing import List, Dict, Optional
 import os
 from datetime import datetime
 import gymnasium as gym
 from gymnasium.wrappers import RecordVideo
 import cv2
 from collections import deque
-from utils.helpful_utils import simplify_board, BASIC_ACTIONS
-from utils.reward_functions import calculate_reward, calculate_board_metrics
+from utils.helpful_utils import simplify_board, BASIC_ACTIONS, format_value
+from utils.reward_functions import calculate_reward
 
 
 class ResizeVideoOutput(gym.Wrapper):
-    def __init__(self, env, width, height):
+    def __init__(self, env, width, height, font):
         super(ResizeVideoOutput, self).__init__(env)
         self.width = width
         self.height = height
@@ -27,8 +26,9 @@ class ResizeVideoOutput(gym.Wrapper):
         # For reward calculation
         self.board_history = deque(maxlen=5)
         self.lines_cleared_history = deque(maxlen=5)
-        self.reward_components = {}
+        self.detailed_info = {}
         self.actions: list[int] = []
+        self.font = font
 
     def step(self, action):
         self.actions = action
@@ -43,13 +43,11 @@ class ResizeVideoOutput(gym.Wrapper):
         self.lines_cleared_history.append(info.get("lines_cleared", 0))
 
         # Calculate custom reward
-        reward, reward_components, (cur_board, cur_board_no_piece) = calculate_reward(
-            self.board_history, self.lines_cleared_history, done, self.time_step
-        )
+        reward, detailed_info = calculate_reward(self.board_history, self.lines_cleared_history, done, self.time_step)
         self.total_reward += reward
-        self.reward_components = reward_components
+        self.detailed_info = detailed_info
 
-        return obs, (reward, reward_components, (cur_board, cur_board_no_piece)), terminated, truncated, info
+        return obs, (reward, detailed_info), terminated, truncated, info
 
     def reset(self, **kwargs):
         self.total_reward = 0
@@ -61,7 +59,7 @@ class ResizeVideoOutput(gym.Wrapper):
 
     def render(self, mode="rgb_array", **kwargs):
         frame = self.env.render(**kwargs)
-        font_scale = 1
+        font_scale = 1.5
         if mode == "rgb_array":
             # Ensure frame is in the correct format (convert to numpy array if it's not)
             if not isinstance(frame, np.ndarray):
@@ -74,35 +72,48 @@ class ResizeVideoOutput(gym.Wrapper):
             # Resize the frame for video recording
             frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_AREA)
 
-            # if frame.shape[2] == 3:  # If RGB image
-            #     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            foo = 30
             # Add text
             cv2.putText(
                 frame,
                 f"Total Chicken Sum Reward: {self.total_reward:.3f}",
-                (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
+                (10, foo),
+                self.font,
                 font_scale,
                 (255, 255, 255),
                 2,
             )
+            foo += 30
 
             cv2.putText(
                 frame,
                 f"Time Step: {self.time_step}",
-                (10, 110),
-                cv2.FONT_HERSHEY_SIMPLEX,
+                (10, foo),
+                self.font,
                 font_scale,
                 (255, 255, 255),
                 2,
             )
-            foo = 140
-            for k, v in self.reward_components.items():
+            foo += 30
+
+            for k, v in self.detailed_info.get("current_stats", {}).items():
                 cv2.putText(
                     frame,
-                    f"{k}:{v:.5f}",
+                    f"{k}:{format_value(v)}",
                     (10, foo),
-                    cv2.FONT_HERSHEY_SIMPLEX,
+                    self.font,
+                    font_scale,
+                    (255, 255, 255),
+                    2,
+                )
+                foo += 30
+
+            for k, v in self.detailed_info.get("rewards", {}).items():
+                cv2.putText(
+                    frame,
+                    f"{k}:{format_value(v)}",
+                    (10, foo),
+                    self.font,
                     font_scale,
                     (255, 255, 255),
                     2,
@@ -112,7 +123,7 @@ class ResizeVideoOutput(gym.Wrapper):
                 frame,
                 f"Action: {[BASIC_ACTIONS.get(act, 'NO ACTION') for act in self.actions]}",
                 (10, foo),
-                cv2.FONT_HERSHEY_SIMPLEX,
+                self.font,
                 font_scale,
                 (255, 255, 255),
                 2,
@@ -131,22 +142,18 @@ class LoggingManager:
         self.model_dir = f"{self.output_dir}/models"
         self.tensorboard_dir = f"{self.output_dir}/tensorboard"
 
-        self.writer: Optional[SummaryWriter] = None
-        self.logger: Optional[logging.Logger] = None
         self.logger_name: str = f"tetris_ai_training_{self.experiment_name}"
-        self.setup_logging()
 
-    def setup_logging(self):
         # Create directories if they don't exist
         os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.model_dir, exist_ok=True)
         os.makedirs(self.tensorboard_dir, exist_ok=True)
 
         # Initialize TensorBoard writer
-        self.writer = SummaryWriter(self.tensorboard_dir)
+        self.writer: SummaryWriter = SummaryWriter(self.tensorboard_dir)
 
         # Set up logging
-        self.logger = logging.getLogger(self.logger_name)
+        self.logger: logging.Logger = logging.getLogger(self.logger_name)
         self.logger.setLevel(logging.INFO)
         log_file = f"{self.log_dir}/training.log"
         handler = RotatingFileHandler(log_file, maxBytes=10**6, backupCount=5)
@@ -159,7 +166,9 @@ class LoggingManager:
         self.logger.addHandler(handler)
         self.logger.addHandler(console_handler)
 
-    def setup_video_recording(self, env, video_every_n_episodes=50, width=640, height=640):
+    def setup_video_recording(
+        self, env, video_every_n_episodes=50, width=1280, height=1280, font=cv2.FONT_HERSHEY_PLAIN
+    ):
         """
         Sets up video recording for the environment with resized video frames.
         Args:
@@ -174,7 +183,7 @@ class LoggingManager:
         os.makedirs(video_dir, exist_ok=True)
 
         # Wrap the environment to resize video frames for recording
-        env = ResizeVideoOutput(env, width, height)
+        env = ResizeVideoOutput(env, width, height, font)
         env = RecordVideo(
             env,
             video_folder=video_dir,
@@ -182,26 +191,10 @@ class LoggingManager:
         )
         return env
 
-    def log_every_step(
-        self, cur_board, cur_board_no_piece, episode: int, step: int, reward_components: dict[str, int]
-    ):
-        self.logger.info(f"episode: {episode}, step: {step}")
-        self.logger.info(reward_components)
-        foo = "\n"
-        self.logger.info(f"{episode=}{step=}{foo}{cur_board}")
-        self.logger.info(f"Fall piece Removed{foo}{cur_board_no_piece}")
+    def log_every_step(self, episode: int, step: int, reward_components: dict[str, int]):
+        self.logger.info(f"{episode=}, {step=}, {reward_components=}")
 
-    # Modify the logger to log video paths
-    def log_video_recording(self, episode: int):
-        video_dir = f"{self.output_dir}/videos"
-        video_files = sorted(os.listdir(video_dir))
-        if video_files:
-            latest_video = video_files[-1]
-            self.logger.info(f"Episode {episode}: Video recorded - {latest_video}")
-        else:
-            self.logger.warning(f"Episode {episode}: No video recorded.")
-
-    def get_model_path(self, episode: Optional[int] = None) -> str:
+    def get_model_path(self, episode: int | None = None) -> str:
         if episode:
             return f"{self.model_dir}/{self.model_name}_episode_{episode}.pth"
         return f"{self.model_dir}/{self.model_name}_final.pth"
@@ -229,16 +222,15 @@ class LoggingManager:
             f"Epsilon={epsilon:.4f}, Avg Loss={avg_loss:.6f}"
         )
 
-    def log_action_distribution_file(self, action_count: Dict[int, int], episode: int):
+    def log_action_distribution_file(self, action_count: dict[int, int], episode: int):
         total_actions = sum(action_count.values())
         if total_actions == 0:
             self.logger.info(f"Episode {episode}: No actions taken in this logging period.")
             return
         action_dist = {k: v / total_actions for k, v in action_count.items()}
-        self.logger.info(f"Episode {episode}: Action Distribution - {action_dist}")
-        self.logger.info(f"Episode {episode}: Action Count - {action_count}")
+        self.logger.info(f"{episode=}, {action_count=}, {action_dist=}")
 
-    def log_q_values_file(self, episode: int, q_values: List[float], interval: int = 100):
+    def log_q_values_file(self, episode: int, q_values: torch.tensor, interval: int = 100):
         if episode % interval != 0 or not q_values:
             return
         avg_q_value = np.mean(q_values)
@@ -261,9 +253,9 @@ class LoggingManager:
         steps: int,
         lines_cleared: int,
         epsilon: float,
-        loss: Optional[float],
-        q_values: List[float],
-        reward_components: Dict[str, float],
+        loss: float | None,
+        q_values: torch.tensor,
+        reward_components: dict[str, float],
     ):
         if self.writer is None:
             return
@@ -294,12 +286,12 @@ class LoggingManager:
             self.writer.add_scalar(f"Reward Components/{component_name}", value, episode)
 
     # Add a method to log reward components to file
-    def log_reward_components_file(self, reward_components: Dict[str, float], episode: int):
+    def log_reward_components_file(self, reward_components: dict[str, float], episode: int):
         component_strings = [f"{name}={value:.2f}" for name, value in reward_components.items()]
         components_log = ", ".join(component_strings)
         self.logger.info(f"Episode {episode}: Reward Components - {components_log}")
 
-    def log_action_distribution_tensorboard(self, action_count: Dict[int, int], episode: int):
+    def log_action_distribution_tensorboard(self, action_count: dict[int, int], episode: int):
         if self.writer is None:
             return
 
@@ -330,10 +322,10 @@ class LoggingManager:
         steps: int,
         lines_cleared: int,
         epsilon: float,
-        loss: Optional[float],
-        q_values: List[float],
-        action_count: Dict[int, int],
-        reward_components: Dict[str, float],
+        loss: float | None,
+        q_values: torch.tensor,
+        action_count: dict[int, int],
+        reward_components: dict[str, float],
         log_interval=10,
     ):
         # Log to files periodically
