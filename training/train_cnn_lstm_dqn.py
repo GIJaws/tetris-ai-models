@@ -20,20 +20,20 @@ from utils.my_logging import LoggingManager
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Hyperparameters
-BATCH_SIZE = 16  # 128
+BATCH_SIZE = 128  # 128
 GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
-EPS_DECAY = 100000  # Decreased from 200000
-TARGET_UPDATE = 1000  # 1000
-MEMORY_SIZE = 100000
-LEARNING_RATE = 1e-4  # Decreased from 1e-3
+EPS_DECAY = 100000
+TARGET_UPDATE = 1000
+MEMORY_SIZE = 500000
+LEARNING_RATE = 1e-4
 NUM_EPISODES = 50000
 SEQUENCE_LENGTH = 10
 HISTORY_LENGTH = 2
 
 # LOGGING PARAMS
-LOG_EPISODE_INTERVAL = 25
+LOG_EPISODE_INTERVAL = 10
 
 
 class ReplayMemory:
@@ -106,7 +106,7 @@ def train():
     env = gym.make("SimpleTetris-v0", render_mode=render_mode, initial_level=1)
 
     # TODO NEED TO MOVE REWARD FUNCTION OUT OF THE LOGGER SO I CAN EASILY SWITCH IT OUT
-    env = logger.setup_video_recording(env, video_every_n_episodes=50)  # Automate video recording
+    env = logger.setup_video_recording(env, video_every_n_episodes=100)  # Automate video recording
 
     n_actions = len(ACTION_COMBINATIONS)
 

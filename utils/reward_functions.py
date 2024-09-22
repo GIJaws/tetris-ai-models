@@ -78,19 +78,24 @@ def calculate_board_statistics(board, info):
 def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over):
     """Calculate reward components based on current and previous statistics."""
     return {
-        "height_penalty": -10 * current_stats["max_height"] if current_stats["max_height"] > 15 else 0,
-        "hole_penalty": -10 * current_stats["holes"],
+        "height_penalty": -1 * current_stats["max_height"] if current_stats["max_height"] > 15 else 0,
+        "hole_penalty": -1 * current_stats["holes"],
         "lines_cleared_reward": 8.0 * lines_cleared,
         "game_over_penalty": -2000.0 if game_over else 0,
         "lost_a_life": -800 if prev_stats["lives_left"] > current_stats["lives_left"] else 0,
-        "max_height_increased": 10 * (prev_stats["max_height"] - current_stats["max_height"]),
-        "hole_improvement": 10 * (prev_stats["holes"] - current_stats["holes"]),
-        "bumpiness_improvement": 10 * (prev_stats["bumpiness"] - current_stats["bumpiness"]),
+        "max_height_increased": 1 * (prev_stats["max_height"] - current_stats["max_height"]),
+        "hole_improvement": 1 * (prev_stats["holes"] - current_stats["holes"]),
+        "bumpiness_improvement": 1 * (prev_stats["bumpiness"] - current_stats["bumpiness"]),
+        "bumpiness": -1 * current_stats["bumpiness"],
         # "well_depth_penalty": -0.3 * current_stats["well_depth"],
         # "column_transitions_penalty": -0.2 * current_stats["column_transitions"],
         # "row_transitions_penalty": -0.1 * current_stats["row_transitions"],
-        "max_height_density": 5 * current_stats["max_height_density"],
-        "max_height_density_penalty": -100 * (current_stats["max_height_density"] - prev_stats["max_height_density"]),
+        # "max_height_density": current_stats["max_height_density"],
+        "max_height_density_penalty": (
+            -100 * (current_stats["max_height_density"] - prev_stats["max_height_density"])
+            if current_stats["max_height"] > 2
+            else 0
+        ),
     }
 
 
