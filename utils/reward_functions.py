@@ -49,9 +49,18 @@ def calculate_reward(board_history, lines_cleared_history, game_over, time_count
     return total_reward, detailed_info
 
 
+def get_column_heights(board):
+    non_zero_mask = board != 0
+    heights = board.shape[1] - np.argmax(non_zero_mask, axis=1)
+    return np.where(non_zero_mask.any(axis=1), heights, 0)
+
+
 def calculate_board_statistics(board):
     """Calculate detailed statistics for a given board state."""
-    heights = np.sum(board, axis=1)
+    heights = get_column_heights(board)
+    if heights.sum() > 10:
+        breakpoint()
+
     return {
         "max_height": np.max(heights),
         "avg_height": np.mean(heights),

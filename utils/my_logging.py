@@ -96,7 +96,7 @@ class ResizeVideoOutput(gym.Wrapper):
             )
             foo += 30
 
-            for k, v in self.detailed_info.get("current_stats", {}).items():
+            for k, v in ({"    Stats": []} | self.detailed_info.get("current_stats", {})).items():
                 cv2.putText(
                     frame,
                     f"{k}:{format_value(v)}",
@@ -108,7 +108,7 @@ class ResizeVideoOutput(gym.Wrapper):
                 )
                 foo += 30
 
-            for k, v in self.detailed_info.get("rewards", {}).items():
+            for k, v in ({"    Rewards": []} | self.detailed_info.get("rewards", {})).items():
                 cv2.putText(
                     frame,
                     f"{k}:{format_value(v)}",
