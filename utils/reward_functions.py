@@ -32,8 +32,9 @@ def calculate_reward(board_history, lines_cleared_history, done, info, window_si
     # Calculate lines cleared
     lines_cleared = lines_cleared_history[-1] if lines_cleared_history else 0
 
+    action_history = get_all_actions(info)
     # Calculate rewards
-    rewards = calculate_rewards(current_stats, prev_stats, lines_cleared, done)
+    rewards = calculate_rewards(current_stats, prev_stats, lines_cleared, done, action_history)
     total_reward = sum(rewards.values())
     rewards["Total_Reward"] = sum(rewards.values())
     # Combine statistics and rewards
@@ -44,6 +45,20 @@ def calculate_reward(board_history, lines_cleared_history, done, info, window_si
     }
 
     return total_reward, detailed_info
+
+
+def get_all_actions(data):
+    actions = []
+
+    # Add current actions
+    if "actions" in data:
+        actions.extend(data["actions"])
+
+    # Recursively check prev_info
+    if "prev_info" in data and isinstance(data["prev_info"], dict):
+        actions.extend(get_all_actions(data["prev_info"]))
+
+    return actions
 
 
 def get_column_heights(board):
@@ -75,32 +90,27 @@ def calculate_board_statistics(board, info):
     }
 
 
-def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over):
+def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history):
     """Calculate reward components based on current and previous statistics."""
+
+    # TODO add a penalty if the bot keeps doing the same actions in a row more then lets say three times
+    # action_history value example [2, 0, 0, 6, 6, 6, 6, 1, 1, 6, 6, 3, 3, 1, 1, 1, 1, 5, 5, 3, 3, 2, 2]
+    # only consider the last three actions (latest actions at the start of the list)
+    recent_actions = action_history[:4]
+    unique_recent_actions = set(recent_actions)  # get the unique actions in the last four steps
+    num_repeated_actions = len(recent_actions) - len(unique_recent_actions)
+    repeated_actions_penalty = -1 * num_repeated_actions if num_repeated_actions > 1 else 0
+
     return {
         "height_penalty": -0.1 * current_stats["max_height"] if current_stats["max_height"] > 15 else 0,
         "hole_penalty": -0.01 * current_stats["holes"],
         "lines_cleared_reward": 8.0 * lines_cleared,
         "game_over_penalty": -10.0 if game_over else 0,
         "lost_a_life": -1 if prev_stats["lives_left"] > current_stats["lives_left"] else 0,
-        "max_height_foo": 0.1
-        * (
-            (current_stats["max_height"] + 2 * current_stats["max_height_density"])
-            if prev_stats["max_height"] > current_stats["max_height"]
-            else (prev_stats["max_height"] - current_stats["max_height"])
-        ),
-        "hole_improvement": (prev_stats["holes"] - current_stats["holes"]),
-        "bumpiness_improvement": (prev_stats["bumpiness"] - current_stats["bumpiness"]),
-        "bumpiness": -0.1 * current_stats["bumpiness"],
-        # "well_depth_penalty": -0.3 * current_stats["well_depth"],
-        # "column_transitions_penalty": -0.2 * current_stats["column_transitions"],
-        # "row_transitions_penalty": -0.1 * current_stats["row_transitions"],
-        # "max_height_density": current_stats["max_height_density"],
-        "max_height_density_penalty": (
-            -100 * (current_stats["max_height_density"] - prev_stats["max_height_density"])
-            if current_stats["max_height"] > 2
-            else 0
-        ),
+        "max_height_foo": max(-1, (prev_stats["max_height"] - current_stats["max_height"])),
+        "hole_improvement": max(-1, (prev_stats["holes"] - current_stats["holes"])),
+        "bumpiness_improvement": max(-1, prev_stats["bumpiness"] - current_stats["bumpiness"]),
+        "repeated_actions_penalty": repeated_actions_penalty,
     }
 
 
