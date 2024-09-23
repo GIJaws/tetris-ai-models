@@ -35,6 +35,10 @@ HISTORY_LENGTH = 2
 # LOGGING PARAMS
 LOG_EPISODE_INTERVAL = 10
 
+# GAME SETTINGS
+INITIAL_LEVEL = 1
+NUM_LIVES = 3
+
 
 class ReplayMemory:
     def __init__(self, capacity):
@@ -103,7 +107,7 @@ def select_action(state, policy_net, steps_done, n_actions):
 def train():
     logger = LoggingManager(model_name="cnn_lstm_dqn")
     render_mode = "rgb_array"
-    env = gym.make("SimpleTetris-v0", render_mode=render_mode, initial_level=1)
+    env = gym.make("SimpleTetris-v0", render_mode=render_mode, initial_level=INITIAL_LEVEL, num_lives=NUM_LIVES)
 
     # TODO NEED TO MOVE REWARD FUNCTION OUT OF THE LOGGER SO I CAN EASILY SWITCH IT OUT
     env = logger.setup_video_recording(env, video_every_n_episodes=100)  # Automate video recording

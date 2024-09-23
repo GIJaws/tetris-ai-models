@@ -106,9 +106,10 @@ class ResizeVideoOutput(gym.Wrapper):
                     2,
                 )
                 foo += 30
+            actions_str = "\n".join([BASIC_ACTIONS[act] for act in self.actions])
             cv2.putText(
                 frame,
-                f"Action: {[BASIC_ACTIONS.get(act, 'NO ACTION') for act in self.actions]}",
+                f"Action: {actions_str}",
                 (10, foo),
                 self.font,
                 font_scale,

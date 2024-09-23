@@ -1,17 +1,7 @@
 import numpy as np
 import itertools
+from gym_simpletetris.tetris.tetris_shapes import BASIC_ACTIONS
 
-# Define basic actions with unique indices from Tetris engine
-BASIC_ACTIONS = {
-    0: "left",  # Move Left
-    1: "right",  # Move Right
-    2: "hard_drop",  # Hard Drop
-    3: "soft_drop",  # Soft Drop
-    4: "rotate_left",  # Rotate Left
-    5: "rotate_right",  # Rotate Right
-    6: "hold_swap",  # Hold/Swap
-    7: "idle",  # Idle
-}
 
 # Reverse mapping: action name to index
 ACTION_NAME_TO_INDEX = {name: action for action, name in BASIC_ACTIONS.items()}
