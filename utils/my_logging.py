@@ -10,7 +10,7 @@ import gymnasium as gym
 from gymnasium.wrappers import RecordVideo
 import cv2
 from collections import deque
-from utils.helpful_utils import simplify_board, BASIC_ACTIONS, format_value
+from gym_simpletetris.tetris.helpful_utils import simplify_board, BASIC_ACTIONS, format_value
 from utils.reward_functions import calculate_reward
 
 

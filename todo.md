@@ -2,10 +2,12 @@
 
 1. **Relocate core Tetris components from `tetris-ai-models` to `gym-simpletetris`:**
 
-   - Move `BASIC_ACTIONS` and `ACTION_COMBINATIONS` to appropriate files in `gym_simpletetris`.
-   - Transfer `simplify_board` function to the Tetris engine.
+   - Move `BASIC_ACTIONS` and `ACTION_COMBINATIONS` to appropriate files in `gym_simpletetris`. (IN PROGRESS)
+   - Transfer `simplify_board` function to the Tetris engine. (IN PROGRESS)
    - Move game-specific constants to the Tetris environment configuration.
    - Relocate reward calculation from `tetris-ai-models/utils/reward_functions.py` to `gym_simpletetris/tetris/tetris_engine.py`.
+   - **MOVED** `helpful_utils.py` to `gym-simpletetris`. (DONE)
+   - Dependency injection for scoring system
 
 2. **Implement new logging system for `gym-simpletetris`:**
 

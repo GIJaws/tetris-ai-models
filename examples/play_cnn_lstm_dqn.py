@@ -11,7 +11,7 @@ sys.path.insert(0, project_root)
 
 from models.cnn_lstm_dqn import CNNLSTMDQN
 from training.train_cnn_lstm_dqn import SEQUENCE_LENGTH
-from utils.helpful_utils import simplify_board, ACTION_COMBINATIONS
+from gym_simpletetris.tetris.helpful_utils import simplify_board, ACTION_COMBINATIONS
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
