@@ -1,5 +1,6 @@
 import numpy as np
 from scipy import ndimage
+from gym_simpletetris.tetris.tetris_shapes import SHAPE_NAMES
 
 
 def calculate_reward(board_history, lines_cleared_history, done, info, window_size=5):
@@ -112,18 +113,36 @@ def calculate_board_statistics(board, info):
 def calculate_board_inputs(board, info):
     """Calculate detailed statistics for a given board state. Used for model input."""
     heights = get_column_heights(board)
-    actions: list[int] = get_all_actions(info)
+    # actions: list[int] = get_all_actions(info)
 
-    padded_actions = actions[:4] + [-99] * (4 - len(actions))
+    # padded_actions = actions[:4] + [-99] * (4 - len(actions))
 
     # Use -99 as a default value for both x and y anchors
     anchor = info.get("anchor", (-99, -99))
+
+    current_piece = info.get("current_piece", None)
+    current_piece = SHAPE_NAMES.index(current_piece) if current_piece is not None else -99
+
+    held_piece = info.get("held_piece_name", None)
+    held_piece = SHAPE_NAMES.index(held_piece) if held_piece is not None else -99
+
+    next_pieces = info.get("next_piece", [])[:4]
+
+    next_pieces = [SHAPE_NAMES.index(piece) for piece in next_pieces]
+
+    padding = [-99] * (4 - len(next_pieces))
+
+    next_pieces = next_pieces + padding
+
     return {
         "holes": count_holes(board),
         "x_anchor": anchor[0],
         "y_anchor": anchor[1],
         **{f"col_{i}_height": h for i, h in enumerate(heights)},
-        **{f"prev_actions_{i}": act for i, act in enumerate(padded_actions)},
+        "current_piece": current_piece,
+        **{f"next_piece_{i}": piece for i, piece in enumerate(next_pieces)},
+        "held_piece": held_piece,
+        # **{f"prev_actions_{i}": act for i, act in enumerate(padded_actions)},
     }
 
 
@@ -173,20 +192,21 @@ def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, actio
     )
 
     if game_over:
-        return {"game_over_penalty": -500.0}
+        return {"game_over_penalty": -10}
 
     if lost_a_life:
-        return {"lost_a_life": -50}
+        return {"lost_a_life": -10}
 
     grav_timer = current_stats["gravity_timer"]
 
     return {
-        "height_penalty": min(-0.025 * current_stats["max_height"] ** 2, 0),
-        "hole_penalty": -0.025 * current_stats["holes"] ** 2,
+        "height_penalty": max(min(-0.0025 * current_stats["max_height"], 0), -1),
+        "hole_penalty": max(min(-0.0025 * current_stats["holes"], 0), -1),
         "lines_cleared_reward": 8.0 * lines_cleared,
-        "max_height_diff": (prev_stats["max_height"] - current_stats["max_height"]),
-        "hole_diff": (prev_stats["holes"] - current_stats["holes"]),
+        "max_height_diff": 0.5 * (prev_stats["max_height"] - current_stats["max_height"]),
+        "hole_diff": max(prev_stats["holes"] - current_stats["holes"], -0.25),
         "gravity_timer": min(-0.025 * grav_timer**2 + 5, 0),
+        "survival_reward": 0.00025 * current_stats["time"],
     }
 
 

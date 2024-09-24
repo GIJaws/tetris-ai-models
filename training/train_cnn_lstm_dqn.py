@@ -25,20 +25,20 @@ BATCH_SIZE = 256  # 128
 GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
-EPS_DECAY = 833368
-TARGET_UPDATE = 250
-MEMORY_SIZE = 500000
-LEARNING_RATE = 1e-4
+EPS_DECAY = 100000  # 833368
+TARGET_UPDATE = 500
+MEMORY_SIZE = 100000
+LEARNING_RATE = 1e-5
 NUM_EPISODES = 50000
-SEQUENCE_LENGTH = 5
+SEQUENCE_LENGTH = 10
 HISTORY_LENGTH = 2
 
 # LOGGING PARAMS
 LOG_EPISODE_INTERVAL = 10
 
 # GAME SETTINGS
-INITIAL_LEVEL = 10
-NUM_LIVES = 3
+INITIAL_LEVEL = 30
+NUM_LIVES = 0
 
 
 class ReplayMemory:
@@ -96,7 +96,7 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     # Optimize the model
     optimizer.zero_grad()
     loss.backward()
-    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
+    torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 1)
     optimizer.step()
 
     return loss.item()
@@ -129,8 +129,8 @@ def train():
     state = simplify_board(state)
     input_shape = (state.shape[0], state.shape[1])
 
-    policy_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH, n_features=17).to(device)
-    target_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH, n_features=17).to(device)
+    policy_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH, n_features=19).to(device)
+    target_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH, n_features=19).to(device)
     target_net.load_state_dict(policy_net.state_dict())
     target_net.eval()
 
