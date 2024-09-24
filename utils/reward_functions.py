@@ -47,7 +47,22 @@ def calculate_reward(board_history, lines_cleared_history, done, info, window_si
     return total_reward, detailed_info
 
 
-def get_all_actions(data):
+def get_all_actions(data, count=0, max_depth=10):
+    """
+    Recursively extract all actions from the given data dictionary, including
+    nested "prev_info" dictionaries. Stops after reaching the maximum recursion
+    depth (default=10) to prevent RecursionError.
+
+    Args:
+        data (dict): The dictionary to extract actions from.
+        count (int, optional): The current recursion depth. Defaults to 0.
+        max_depth (int, optional): The maximum recursion depth. Defaults to 10.
+
+    Returns:
+        list: A list of all actions extracted from the given data.
+    """
+    if count > max_depth:
+        return []
     actions = []
 
     # Add current actions
@@ -56,7 +71,7 @@ def get_all_actions(data):
 
     # Recursively check prev_info
     if "prev_info" in data and isinstance(data["prev_info"], dict):
-        actions.extend(get_all_actions(data["prev_info"]))
+        actions.extend(get_all_actions(data["prev_info"], count=(count + 1), max_depth=max_depth))
 
     return actions
 
@@ -99,18 +114,24 @@ def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, actio
     recent_actions = action_history[:4]
     unique_recent_actions = set(recent_actions)  # get the unique actions in the last four steps
     num_repeated_actions = len(recent_actions) - len(unique_recent_actions)
-    repeated_actions_penalty = -1 * num_repeated_actions if num_repeated_actions > 1 else 0
+    repeated_actions_penalty = -10 * num_repeated_actions if num_repeated_actions > 2 else 0
+
+    lost_a_life = prev_stats["lives_left"] > current_stats["lives_left"]
 
     return {
-        "height_penalty": -0.1 * current_stats["max_height"] if current_stats["max_height"] > 15 else 0,
-        "hole_penalty": -0.01 * current_stats["holes"],
+        # "height_penalty": -0.1 * current_stats["max_height"] if current_stats["max_height"] > 15 else 0,
+        "hole_penalty": -0.1 * current_stats["holes"] if not lost_a_life else 0,
         "lines_cleared_reward": 8.0 * lines_cleared,
-        "game_over_penalty": -10.0 if game_over else 0,
-        "lost_a_life": -1 if prev_stats["lives_left"] > current_stats["lives_left"] else 0,
-        "max_height_foo": max(-1, (prev_stats["max_height"] - current_stats["max_height"])),
-        "hole_improvement": max(-1, (prev_stats["holes"] - current_stats["holes"])),
-        "bumpiness_improvement": max(-1, prev_stats["bumpiness"] - current_stats["bumpiness"]),
-        "repeated_actions_penalty": repeated_actions_penalty,
+        "game_over_penalty": -1000.0 if game_over else 0,
+        "lost_a_life": -100 if lost_a_life else 0,
+        "max_height_penalty": (
+            max(-5, (prev_stats["max_height"] - current_stats["max_height"])) if not lost_a_life else 0
+        ),
+        "hole_improvement": max(-10, (prev_stats["holes"] - current_stats["holes"])) if not lost_a_life else 0,
+        # "bumpiness_improvement": (
+        #     max(-0.1, prev_stats["bumpiness"] - current_stats["bumpiness"]) if not lost_a_life else 0
+        # ),
+        "repeated_actions_penalty": repeated_actions_penalty if not lost_a_life else 0,
     }
 
 
