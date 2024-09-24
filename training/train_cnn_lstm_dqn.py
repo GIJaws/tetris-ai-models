@@ -16,7 +16,7 @@ sys.path.insert(0, project_root)
 from models.cnn_lstm_dqn import CNNLSTMDQN
 from gym_simpletetris.tetris.helpful_utils import simplify_board, ACTION_COMBINATIONS
 from utils.my_logging import LoggingManager
-from utils.reward_functions import calculate_board_statistics
+from utils.reward_functions import calculate_board_inputs
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -26,11 +26,11 @@ GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
 EPS_DECAY = 833368
-TARGET_UPDATE = 1000
+TARGET_UPDATE = 250
 MEMORY_SIZE = 500000
 LEARNING_RATE = 1e-4
 NUM_EPISODES = 50000
-SEQUENCE_LENGTH = 10
+SEQUENCE_LENGTH = 5
 HISTORY_LENGTH = 2
 
 # LOGGING PARAMS
@@ -38,7 +38,7 @@ LOG_EPISODE_INTERVAL = 10
 
 # GAME SETTINGS
 INITIAL_LEVEL = 10
-NUM_LIVES = 10
+NUM_LIVES = 3
 
 
 class ReplayMemory:
@@ -129,8 +129,8 @@ def train():
     state = simplify_board(state)
     input_shape = (state.shape[0], state.shape[1])
 
-    policy_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH).to(device)
-    target_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH).to(device)
+    policy_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH, n_features=17).to(device)
+    target_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH, n_features=17).to(device)
     target_net.load_state_dict(policy_net.state_dict())
     target_net.eval()
 
@@ -160,9 +160,9 @@ def train():
                 state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
 
                 # Calculate additional features
-                board_features = calculate_board_statistics(state, info)
+                board_features = calculate_board_inputs(state, info)
                 features_tensor = torch.tensor(
-                    [list([v for v in board_features.values() if not isinstance(v, list)])],
+                    [list(board_features.values())],
                     dtype=torch.float32,
                     device=device,
                 )
@@ -195,9 +195,9 @@ def train():
                     0
                 )
 
-                next_board_features = calculate_board_statistics(next_state, info)
+                next_board_features = calculate_board_inputs(next_state, info)
                 next_features_tensor = torch.tensor(
-                    [list([v for v in next_board_features.values() if not isinstance(v, list)])],
+                    [list(next_board_features.values())],
                     dtype=torch.float32,
                     device=device,
                 )

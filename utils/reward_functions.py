@@ -96,16 +96,38 @@ def calculate_board_statistics(board, info):
         "bumpiness": np.sum(np.abs(np.diff(heights))),
         "density": np.sum(board) / (board.shape[0] * board.shape[1]),
         "max_height_density": np.sum(board) / max(1, (board.shape[0] * np.max(heights))),
-        # "well_depth": calculate_well_depth(board),
-        # "column_transitions": calculate_column_transitions(board),
-        # "row_transitions": calculate_row_transitions(board),
         "lives_left": info.get("lives_left", 0),
         "deaths": info.get("deaths", 0),
         "level": info.get("level", 0),
+        "gravity_timer": info.get("gravity_timer", 0),
+        "gravity_interval": info.get("gravity_interval", 0),
+        "anchor": info.get("anchor", (-99, -99)),
+    }
+
+    # "well_depth": calculate_well_depth(board),
+    # "column_transitions": calculate_column_transitions(board),
+    # "row_transitions": calculate_row_transitions(board),
+
+
+def calculate_board_inputs(board, info):
+    """Calculate detailed statistics for a given board state. Used for model input."""
+    heights = get_column_heights(board)
+    actions: list[int] = get_all_actions(info)
+
+    padded_actions = actions[:4] + [-99] * (4 - len(actions))
+
+    # Use -99 as a default value for both x and y anchors
+    anchor = info.get("anchor", (-99, -99))
+    return {
+        "holes": count_holes(board),
+        "x_anchor": anchor[0],
+        "y_anchor": anchor[1],
+        **{f"col_{i}_height": h for i, h in enumerate(heights)},
+        **{f"prev_actions_{i}": act for i, act in enumerate(padded_actions)},
     }
 
 
-def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history):
+def calculate_rewards_OLD(current_stats, prev_stats, lines_cleared, game_over, action_history):
     """Calculate reward components based on current and previous statistics."""
 
     # TODO add a penalty if the bot keeps doing the same actions in a row more then lets say three times
@@ -131,10 +153,40 @@ def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, actio
         "lost_a_life": -10 if lost_a_life else 0,
         "max_height_penalty": (prev_stats["max_height"] - current_stats["max_height"]) if not lost_a_life else 0,
         "hole_diff_penalty": (prev_stats["holes"] - current_stats["holes"]) if not lost_a_life else 0,
+        "gravity_timer": (prev_stats["gravity_timer"] - current_stats["gravity_timer"]) if not lost_a_life else 0,
+        # TODO clip gravity timer between -1 and 0.1
         # "bumpiness_improvement": (
         #     max(-0.1, prev_stats["bumpiness"] - current_stats["bumpiness"]) if not lost_a_life else 0
         # ),
         # "repeated_actions_penalty": repeated_actions_penalty if not lost_a_life else 0,
+    }
+
+
+def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history):
+    """Calculate reward components based on current and previous statistics."""
+
+    if not prev_stats:
+        return {"new game?": 0}
+
+    lost_a_life = (
+        prev_stats["lives_left"] > current_stats["lives_left"] or prev_stats["deaths"] < current_stats["deaths"]
+    )
+
+    if game_over:
+        return {"game_over_penalty": -500.0}
+
+    if lost_a_life:
+        return {"lost_a_life": -50}
+
+    grav_timer = current_stats["gravity_timer"]
+
+    return {
+        "height_penalty": min(-0.025 * current_stats["max_height"] ** 2, 0),
+        "hole_penalty": -0.025 * current_stats["holes"] ** 2,
+        "lines_cleared_reward": 8.0 * lines_cleared,
+        "max_height_diff": (prev_stats["max_height"] - current_stats["max_height"]),
+        "hole_diff": (prev_stats["holes"] - current_stats["holes"]),
+        "gravity_timer": min(-0.025 * grav_timer**2 + 5, 0),
     }
 
 
