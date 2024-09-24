@@ -16,6 +16,7 @@ sys.path.insert(0, project_root)
 from models.cnn_lstm_dqn import CNNLSTMDQN
 from gym_simpletetris.tetris.helpful_utils import simplify_board, ACTION_COMBINATIONS
 from utils.my_logging import LoggingManager
+from utils.reward_functions import calculate_board_statistics
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -36,8 +37,8 @@ HISTORY_LENGTH = 2
 LOG_EPISODE_INTERVAL = 10
 
 # GAME SETTINGS
-INITIAL_LEVEL = 1
-NUM_LIVES = 5
+INITIAL_LEVEL = 10
+NUM_LIVES = 10
 
 
 class ReplayMemory:
@@ -61,32 +62,41 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     transitions = memory.sample(BATCH_SIZE)
     batch = list(zip(*transitions))
 
-    state_batch = torch.cat(batch[0])  # Shape: [BATCH_SIZE, SEQ_LEN, H, W]
-    action_batch = torch.cat(batch[1])  # Shape: [BATCH_SIZE, 1]
-    reward_batch = torch.tensor(batch[2], dtype=torch.float32, device=device)  # Shape: [BATCH_SIZE]
-    next_state_batch = torch.cat(batch[3])  # Shape: [BATCH_SIZE, SEQ_LEN, H, W]
-    done_batch = torch.tensor(batch[4], dtype=torch.bool, device=device)  # Shape: [BATCH_SIZE]
+    state_features = batch[0]
+    state_batch, features_batch = zip(*state_features)
+    state_batch = torch.cat(state_batch)
+    features_batch = torch.cat(features_batch)
+
+    next_state_features = batch[3]
+    next_state_batch, next_features_batch = zip(*next_state_features)
+    next_state_batch = torch.cat(next_state_batch)
+    next_features_batch = torch.cat(next_features_batch)
+
+    action_batch = torch.cat(batch[1])
+    reward_batch = torch.tensor(batch[2], dtype=torch.float32, device=device)
+    done_batch = torch.tensor(batch[4], dtype=torch.bool, device=device)
 
     # Compute Q(s_t, a)
-    state_action_values = policy_net(state_batch)[:, -1, :].gather(1, action_batch)
+    state_action_values = policy_net((state_batch, features_batch)).gather(1, action_batch)
 
     # Compute V(s_{t+1})
     with torch.no_grad():
         next_state_values = torch.zeros(BATCH_SIZE, device=device)
         non_final_mask = ~done_batch
         if non_final_mask.sum() > 0:
-            next_state_values[non_final_mask] = target_net(next_state_batch[non_final_mask])[:, -1, :].max(1)[0]
+            next_state_values[non_final_mask] = target_net(
+                (next_state_batch[non_final_mask], next_features_batch[non_final_mask])
+            ).max(1)[0]
 
     # Compute the expected Q values
     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
     # Compute Huber loss
     loss = F.smooth_l1_loss(state_action_values.squeeze(), expected_state_action_values)
-
     # Optimize the model
     optimizer.zero_grad()
     loss.backward()
-    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 200)
+    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
 
     return loss.item()
@@ -98,8 +108,8 @@ def select_action(state, policy_net, steps_done, n_actions):
     if sample > eps_threshold:
         with torch.no_grad():
             q_values = policy_net(state)
-            action = q_values[:, -1, :].max(-1)[1].item()
-        return action, eps_threshold, q_values[:, -1, :]
+            action = q_values.max(-1)[1].item()
+        return action, eps_threshold, q_values
     else:
         return random.randrange(n_actions), eps_threshold, None
 
@@ -145,11 +155,22 @@ def train():
 
             current_episode_action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
             episode_reward_components = {}
+            info = {}
             while not done:
                 state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
 
+                # Calculate additional features
+                board_features = calculate_board_statistics(state, info)
+                features_tensor = torch.tensor(
+                    [list([v for v in board_features.values() if not isinstance(v, list)])],
+                    dtype=torch.float32,
+                    device=device,
+                )
+
+                combined_state = (state_tensor, features_tensor)
+
                 action, eps_threshold, step_q_values = select_action(
-                    state_tensor, policy_net, total_steps_done, n_actions
+                    combined_state, policy_net, total_steps_done, n_actions
                 )
                 current_episode_action_count[action] += 1
 
@@ -174,12 +195,19 @@ def train():
                     0
                 )
 
+                next_board_features = calculate_board_statistics(next_state, info)
+                next_features_tensor = torch.tensor(
+                    [list([v for v in next_board_features.values() if not isinstance(v, list)])],
+                    dtype=torch.float32,
+                    device=device,
+                )
+
                 # Store transition in memory
                 memory.push(
-                    state_tensor,
+                    (state_tensor, features_tensor),
                     torch.tensor([[action]], device=device, dtype=torch.long),
                     reward,
-                    next_state_tensor,
+                    (next_state_tensor, next_features_tensor),
                     done,
                 )
 

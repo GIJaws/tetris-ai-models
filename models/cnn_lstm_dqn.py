@@ -5,10 +5,10 @@ import numpy as np
 
 
 class CNNLSTMDQN(nn.Module):
-    def __init__(self, input_shape, n_actions, dropout=0.5):
+    def __init__(self, input_shape, n_actions, sequence_length, n_features=11):
         super(CNNLSTMDQN, self).__init__()
 
-        # Changed to LeakyReLU and added dropout to conv layers
+        # Existing CNN layers
         self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(32)
         self.dropout1 = nn.Dropout2d(p=0.1)
@@ -23,11 +23,17 @@ class CNNLSTMDQN(nn.Module):
 
         conv_out_size = self._get_conv_output(input_shape)
 
+        # LSTM for processing CNN output
         self.lstm = nn.LSTM(conv_out_size, 256, batch_first=True)
-        self.dropout = nn.Dropout(p=0.4)
-        self.fc = nn.Linear(256, n_actions)
 
-        self._initialize_weights()
+        # Linear layer for processing additional features
+        self.features_fc = nn.Linear(n_features, 64)
+
+        # Combine LSTM output and processed features
+        self.combine_fc = nn.Linear(256 + 64, 128)
+
+        self.dropout = nn.Dropout(p=0.4)
+        self.fc = nn.Linear(128, n_actions)
 
     def _get_conv_output(self, shape):
         with torch.no_grad():
@@ -71,10 +77,29 @@ class CNNLSTMDQN(nn.Module):
                         nn.init.constant_(param.data, 0)
 
     def forward(self, x):
-        batch_size, seq_len, height, width = x.size()
-        x = x.view(batch_size * seq_len, 1, height, width)
+        state, features = x
+        batch_size, seq_len, height, width = state.size()
 
-        # Changed order to Conv -> BN -> LeakyReLU -> Dropout
+        # Process the board state through CNN and LSTM
+        x = state.view(batch_size * seq_len, 1, height, width)
+        x = self.process_cnn(x)
+        x = x.view(batch_size, seq_len, -1)
+        lstm_out, _ = self.lstm(x)
+        lstm_out = lstm_out[:, -1, :]  # Take the last output
+
+        # Process additional features
+        features = F.relu(self.features_fc(features))
+
+        # Combine LSTM output and processed features
+        combined = torch.cat((lstm_out, features), dim=1)
+        combined = F.relu(self.combine_fc(combined))
+
+        # Final output
+        q_values = self.fc(self.dropout(combined))
+
+        return q_values
+
+    def process_cnn(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
         x = F.leaky_relu(x)
@@ -90,10 +115,4 @@ class CNNLSTMDQN(nn.Module):
         x = F.leaky_relu(x)
         x = self.dropout3(x)
 
-        conv_out = x.view(batch_size, seq_len, -1)
-        lstm_out, _ = self.lstm(conv_out)
-
-        # Use the entire sequence output
-        lstm_out = self.dropout(lstm_out)
-        x = self.fc(lstm_out.reshape(batch_size * seq_len, -1))
-        return x.view(batch_size, seq_len, -1)
+        return x.view(x.size(0), -1)
