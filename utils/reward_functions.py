@@ -27,7 +27,7 @@ def calculate_reward(board_history, lines_cleared_history, done, info, window_si
         prev_board = remove_floating_blocks(board_history[-2])
         prev_stats = calculate_board_statistics(prev_board, info.get("prev_info", {}))
     else:
-        prev_stats = current_stats.copy()
+        prev_stats = {}
 
     # Calculate lines cleared
     lines_cleared = lines_cleared_history[-1] if lines_cleared_history else 0
@@ -111,27 +111,30 @@ def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, actio
     # TODO add a penalty if the bot keeps doing the same actions in a row more then lets say three times
     # action_history value example [2, 0, 0, 6, 6, 6, 6, 1, 1, 6, 6, 3, 3, 1, 1, 1, 1, 5, 5, 3, 3, 2, 2]
     # only consider the last three actions (latest actions at the start of the list)
-    recent_actions = action_history[:4]
-    unique_recent_actions = set(recent_actions)  # get the unique actions in the last four steps
-    num_repeated_actions = len(recent_actions) - len(unique_recent_actions)
-    repeated_actions_penalty = -10 * num_repeated_actions if num_repeated_actions > 2 else 0
+    # recent_actions = action_history[:4]
+    # unique_recent_actions = set(recent_actions)  # get the unique actions in the last four steps
+    # num_repeated_actions = len(recent_actions) - len(unique_recent_actions)
+    # repeated_actions_penalty = -10 * num_repeated_actions if num_repeated_actions > 2 else 0
 
-    lost_a_life = prev_stats["lives_left"] > current_stats["lives_left"]
+    if not prev_stats:
+        return {"new game?": 0}
+
+    lost_a_life = (
+        prev_stats["lives_left"] > current_stats["lives_left"] or prev_stats["deaths"] < current_stats["deaths"]
+    )
 
     return {
         # "height_penalty": -0.1 * current_stats["max_height"] if current_stats["max_height"] > 15 else 0,
-        "hole_penalty": -0.1 * current_stats["holes"] if not lost_a_life else 0,
+        # "hole_penalty": -1 * current_stats["holes"] if not lost_a_life else 0,
         "lines_cleared_reward": 8.0 * lines_cleared,
-        "game_over_penalty": -1000.0 if game_over else 0,
-        "lost_a_life": -100 if lost_a_life else 0,
-        "max_height_penalty": (
-            max(-5, (prev_stats["max_height"] - current_stats["max_height"])) if not lost_a_life else 0
-        ),
-        "hole_improvement": max(-10, (prev_stats["holes"] - current_stats["holes"])) if not lost_a_life else 0,
+        "game_over_penalty": -100.0 if game_over else 0,
+        "lost_a_life": -10 if lost_a_life else 0,
+        "max_height_penalty": (prev_stats["max_height"] - current_stats["max_height"]) if not lost_a_life else 0,
+        "hole_diff_penalty": (prev_stats["holes"] - current_stats["holes"]) if not lost_a_life else 0,
         # "bumpiness_improvement": (
         #     max(-0.1, prev_stats["bumpiness"] - current_stats["bumpiness"]) if not lost_a_life else 0
         # ),
-        "repeated_actions_penalty": repeated_actions_penalty if not lost_a_life else 0,
+        # "repeated_actions_penalty": repeated_actions_penalty if not lost_a_life else 0,
     }
 
 

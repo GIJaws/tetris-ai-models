@@ -6,8 +6,8 @@
    - Transfer `simplify_board` function to the Tetris engine. (IN PROGRESS)
    - Move game-specific constants to the Tetris environment configuration.
    - Relocate reward calculation from `tetris-ai-models/utils/reward_functions.py` to `gym_simpletetris/tetris/tetris_engine.py`.
-   - **MOVED** `helpful_utils.py` to `gym-simpletetris`. (DONE)
-   - Dependency injection for scoring system
+   - ~~**MOVED** `helpful_utils.py` to `gym-simpletetris`.~~ (DONE)
+   - ~~Dependency injection for scoring system~~ (DONE)
 
 2. **Implement new logging system for `gym-simpletetris`:**
 
