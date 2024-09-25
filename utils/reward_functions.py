@@ -180,7 +180,11 @@ def calculate_rewards(
     - total_rewards: the total of the scaled rewards
     - total_penalties: the total of the scaled penalties
     """
-    """Calculate reward components based on current and previous statistics, with scaling."""
+
+    if current_stats.get("max_height", 0) < 0 or current_stats.get("holes", 0) < 0:
+        raise ValueError("Invalid values in current_stats")
+    if prev_stats and (prev_stats.get("max_height", 0) < 0 or prev_stats.get("holes", 0) < 0):
+        raise ValueError("Invalid values in prev_stats")
 
     # Initialize the dictionary to ensure all keys are included
     result = {
@@ -261,10 +265,10 @@ def calculate_rewards(
     # Scaling factors based on sum constraints
 
     # Sum of min penalties
-    penalty_scaling_factor = actual_penalty_sum / penalty_target_sum
+    penalty_scaling_factor = penalty_target_sum / actual_penalty_sum if actual_penalty_sum > 0 else 0
 
     # Sum of max rewards
-    reward_scaling_factor = actual_reward_sum / reward_target_sum
+    reward_scaling_factor = reward_target_sum / actual_reward_sum if actual_reward_sum > 0 else 0
 
     # Scale penalties
     scaled_penalties = {}
@@ -279,8 +283,16 @@ def calculate_rewards(
     # Scale rewards
     scaled_rewards = {}
     for reward_name, raw_reward in rewards.items():
-        min_val, max_val = reward_boundaries[reward_name]
-        scaled_rewards[reward_name] = ((raw_reward - min_val) / (max_val - min_val)) * reward_scaling_factor
+        # min_val, max_val = reward_boundaries[reward_name]
+        # scaled_rewards[reward_name] = ((raw_reward - min_val) / (max_val - min_val)) * reward_scaling_factor
+
+        if raw_reward > 0:
+            min_val, max_val = reward_boundaries[reward_name]
+            scaled_reward = ((raw_reward - min_val) / (max_val - min_val)) * reward_scaling_factor
+        else:
+            scaled_reward = 0
+
+        scaled_rewards[reward_name] = scaled_reward
 
     # Combine scaled rewards and penalties
     total_rewards = sum(scaled_rewards.values())
