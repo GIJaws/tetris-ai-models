@@ -21,7 +21,7 @@ from utils.reward_functions import calculate_board_inputs
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Hyperparameters
-BATCH_SIZE = 256  # 128
+BATCH_SIZE = 512  # 256
 GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
@@ -232,7 +232,7 @@ def train():
 
                 total_steps_done += 1
 
-                logger.log_every_step(episode=episode, step=total_steps_done, grad_norms=grad_norms)
+                logger.log_every_step(episode=episode, step=total_steps_done, grad_norms=grad_norms, reward=reward)
 
             # Log metrics to TensorBoard and files
             logger.log_every_episode(

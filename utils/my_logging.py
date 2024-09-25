@@ -181,10 +181,12 @@ class LoggingManager:
         )
         return env
 
-    def log_every_step(self, episode: int, step: int, grad_norms: tuple[float, float]):
+    def log_every_step(self, episode: int, step: int, grad_norms: tuple[float, float], reward: float):
         # Log gradient norms
-        self.writer.add_scalar("Gradient/NormBeforeClipping", grad_norms[0], episode + step)
-        self.writer.add_scalar("Gradient/NormAfterClipping", grad_norms[1], episode + step)
+        self.writer.add_scalar("Steps/GradientNormBeforeClipping", grad_norms[0], episode + step)
+        self.writer.add_scalar("Steps/GradientNormAfterClipping", grad_norms[1], episode + step)
+
+        self.writer.add_scalar("Steps/Reward", reward, episode + step)
 
     def get_model_path(self, episode: int | None = None) -> str:
         if episode:
