@@ -84,13 +84,13 @@ class TestCalculateRewards(unittest.TestCase):
         """
         Test that when the gravity timer exceeds the threshold, the penalty is negative.
         """
-        current_stats = {"gravity_timer": 30, "gravity_interval": 60}
-        prev_stats = {"gravity_timer": 0}
+        current_stats = {"gravity_timer": 30, "gravity_interval": 60, "lives_left": 1}
+        prev_stats = {"gravity_timer": 29, "gravity_interval": 60, "lives_left": 1}
         lines_cleared = 0
         game_over = False
         action_history = []
         result = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history)
-        self.assertLess(result["scaled_penalties"]["gravity_timer"], 0)
+        self.assertLess(result["scaled_penalties"]["gravity_timer"], 0.0)
 
     # def test_gravity_timer_does_not_exceed_threshold(self):
     #     """
