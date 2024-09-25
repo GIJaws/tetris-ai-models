@@ -219,98 +219,80 @@ def calculate_rewards(
 
     # Start penalizing if gravity timer exceeds 30 when interval is 60
     gravity_interval = current_stats.get("gravity_interval", 0)
-    gravity_threshold = 0.5 * gravity_interval
-    print(gravity_threshold)
+    gravity_threshold = gravity_interval // 2
 
     grav_timer = current_stats.get("gravity_timer", 0)
-
-    grav_penalty = (grav_timer >= gravity_threshold) * (-0.0001 * (grav_timer) ** 2)
 
     hole_diff = prev_stats.get("holes", 0) - current_stats.get("holes", 0)
 
     max_height_diff = prev_stats.get("max_height", 0) - current_stats.get("max_height", 0)
     # Raw penalties and rewards
     penalties = {
-        "height_penalty": -0.0025 * current_stats.get("max_height", 0),
-        "hole_penalty": -0.0001 * current_stats.get("holes", 0),
-        "max_height_diff_penalty": min(0.5 * max_height_diff, 0),
+        "height_penalty": current_stats.get("max_height", 0),
+        "hole_penalty": current_stats.get("holes", 0),
+        "max_height_diff_penalty": min(max_height_diff, 0),
         "hole_diff_penalty": min(hole_diff, 0),
-        "gravity_timer": grav_penalty,
+        "gravity_timer": grav_timer * (grav_timer >= gravity_threshold),
     }
 
     rewards = {
         "lines_cleared_reward": 8.0 * lines_cleared,
     }
 
-    # Penalty and reward boundaries (min, max)
+    # Penalty boundaries (min, max)  # Assuming board is 10*20
     penalty_boundaries = {
-        "height_penalty": (-0.0525, 0),
-        "hole_penalty": (-0.02, 0),
+        "height_penalty": (0, 20),
+        "hole_penalty": (0, 200),
         "max_height_diff_penalty": (-10.5, 0),
         "hole_diff_penalty": (-200, 0),
-        "gravity_timer": (-0.36, 0),
+        "gravity_timer": (gravity_threshold, gravity_interval),
     }
 
-    reward_boundaries = {
-        "lines_cleared_reward": (0, 32),
-    }
+    reward_boundaries = {"lines_cleared_reward": (0, 32)}
 
     # Target sum limits
-    penalty_target_sum = -0.9
-    reward_target_sum = 1
+    penalty_target_sum_limit = -0.9
+    reward_target_sum_limit = 1
 
     actual_penalty_sum = sum(abs(p) for p in penalties.values())
     actual_reward_sum = sum(abs(r) for r in rewards.values())
 
-    # Scaling factors based on sum constraints
-
     # Sum of min penalties
-    penalty_scaling_factor = penalty_target_sum / actual_penalty_sum if actual_penalty_sum > 0 else 0
+    penalty_scaling_factor = penalty_target_sum_limit / actual_penalty_sum if actual_penalty_sum > 0 else 0
 
     # Sum of max rewards
-    reward_scaling_factor = reward_target_sum / actual_reward_sum if actual_reward_sum > 0 else 0
+    reward_scaling_factor = reward_target_sum_limit / actual_reward_sum if actual_reward_sum > 0 else 0
 
     # Scale penalties
     scaled_penalties = {}
     for penalty_name, raw_penalty in penalties.items():
-        if raw_penalty < 0:
-            min_val, max_val = penalty_boundaries[penalty_name]
-            scaled_penalty = ((raw_penalty - min_val) / (max_val - min_val)) * penalty_scaling_factor
-        else:
-            scaled_penalty = 0
-        scaled_penalties[penalty_name] = scaled_penalty
+        min_val, max_val = penalty_boundaries[penalty_name]
+        scaled_penalties[penalty_name] = raw_penalty * penalty_scaling_factor
 
     # Scale rewards
     scaled_rewards = {}
     for reward_name, raw_reward in rewards.items():
-        # min_val, max_val = reward_boundaries[reward_name]
-        # scaled_rewards[reward_name] = ((raw_reward - min_val) / (max_val - min_val)) * reward_scaling_factor
-
-        if raw_reward > 0:
-            min_val, max_val = reward_boundaries[reward_name]
-            scaled_reward = ((raw_reward - min_val) / (max_val - min_val)) * reward_scaling_factor
-        else:
-            scaled_reward = 0
-
-        scaled_rewards[reward_name] = scaled_reward
+        min_val, max_val = reward_boundaries[reward_name]
+        scaled_rewards[reward_name] = raw_reward * reward_scaling_factor
 
     # Combine scaled rewards and penalties
     total_rewards = sum(scaled_rewards.values())
     total_penalties = sum(scaled_penalties.values())
+    total_unscaled_rewards = sum(rewards.values())
+    total_unscaled_penalties = sum(penalties.values())
 
     # Update the result with the scaled values
     result["scaled_penalties"] = scaled_penalties
     result["scaled_rewards"] = scaled_rewards
-    result["total_rewards_only"] = total_rewards
-    result["total_penalties_only"] = total_penalties
-    result["Total_Reward"] = total_rewards + total_penalties
     result["unscaled_rewards"] = rewards
     result["unscaled_penalties"] = penalties
+    result["total_scaled_rewards"] = total_rewards
+    result["total_scaled_penalties"] = total_penalties
+    result["total_unscaled_rewards"] = total_unscaled_rewards
+    result["total_unscaled_penalties"] = total_unscaled_penalties
+    result["Total_Reward"] = total_rewards + total_penalties
 
     return result
-
-
-# Function refactored to include the scaling mechanism
 
 
 # Helper functions (implement these based on your specific needs)

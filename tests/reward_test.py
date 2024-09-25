@@ -54,7 +54,6 @@ class TestCalculateRewards(unittest.TestCase):
         result = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history)
         self.assertEqual(result["game_over_penalty"], -1)
 
-    # TODO refactor test_life_lost, test_no_life_lost, and test_gravity_timer_exceeds_threshold to
     def test_life_lost(self):
         """
         Test that when a life is lost, the penalty is -0.9.
@@ -221,10 +220,10 @@ class TestCalculateRewards(unittest.TestCase):
         result = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history)
 
         self.assertLessEqual(result["scaled_penalties"]["height_penalty"], 0)
-        self.assertGreaterEqual(result["scaled_penalties"]["height_penalty"], -0.0525)
+        self.assertGreaterEqual(result["scaled_penalties"]["height_penalty"], -0.9)
 
         self.assertLessEqual(result["scaled_penalties"]["hole_penalty"], 0)
-        self.assertGreaterEqual(result["scaled_penalties"]["hole_penalty"], -0.02)
+        self.assertGreaterEqual(result["scaled_penalties"]["hole_penalty"], -0.9)
 
     def test_rescaling_on_exceeding_boundaries(self):
         """
