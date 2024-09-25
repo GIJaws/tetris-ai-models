@@ -112,9 +112,9 @@ def calculate_board_statistics(board, info):
 def calculate_board_inputs(board, info):
     """Calculate detailed statistics for a given board state. Used for model input."""
     heights = get_column_heights(board)
-    # actions: list[int] = get_all_actions(info)
+    actions: list[int] = get_all_actions(info)
 
-    # padded_actions = actions[:4] + [-99] * (4 - len(actions))
+    padded_actions = actions[:20] + [-99] * (20 - len(actions))
 
     # Use -99 as a default value for both x and y anchors
     anchor = info.get("anchor", (-99, -99))
@@ -135,13 +135,15 @@ def calculate_board_inputs(board, info):
 
     return {
         "holes": count_holes(board),
+        "bumpiness": np.sum(np.abs(np.diff(heights))),
+        "lines_cleared": info.get("lines_cleared_per_step", 0),
         "x_anchor": anchor[0],
         "y_anchor": anchor[1],
         **{f"col_{i}_height": h for i, h in enumerate(heights)},
         "current_piece": current_piece,
         **{f"next_piece_{i}": piece for i, piece in enumerate(next_pieces)},
         "held_piece": held_piece,
-        # **{f"prev_actions_{i}": act for i, act in enumerate(padded_actions)},
+        **{f"prev_actions_{i}": act for i, act in enumerate(padded_actions)},
     }
 
 

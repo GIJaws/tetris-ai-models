@@ -25,7 +25,7 @@ BATCH_SIZE = 512  # 256
 GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
-EPS_DECAY = 100000  # 833368
+EPS_DECAY = 833368  # 100000
 TARGET_UPDATE = 500
 MEMORY_SIZE = 100000
 LEARNING_RATE = 1e-5
@@ -145,8 +145,8 @@ def train():
     state = simplify_board(state)
     input_shape = (state.shape[0], state.shape[1])
 
-    policy_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH, n_features=19).to(device)
-    target_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH, n_features=19).to(device)
+    policy_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH, n_features=41).to(device)
+    target_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH, n_features=41).to(device)
     target_net.load_state_dict(policy_net.state_dict())
     target_net.eval()
 

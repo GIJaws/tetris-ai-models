@@ -177,7 +177,7 @@ class LoggingManager:
             env,
             video_folder=video_dir,
             episode_trigger=lambda episode_id: episode_id % video_every_n_episodes == 0
-            or episode_id in [1, 2, 5, 10, 15, 25, 50, 80, 130, 150, 180, 250],
+            or episode_id in [6, 10, 15, 25, 50, 80, 130, 150, 180, 250],
         )
         return env
 
