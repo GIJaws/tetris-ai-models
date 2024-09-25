@@ -247,32 +247,19 @@ def calculate_rewards(
 
     reward_boundaries = {"lines_cleared_reward": (0, 32)}
 
-    # Target sum limits
-    penalty_target_sum_limit = -0.9
-    reward_target_sum_limit = 1
-
-    actual_penalty_sum = sum(abs(p) for p in penalties.values())
-    actual_reward_sum = sum(abs(r) for r in rewards.values())
-
-    # Sum of min penalties
-    penalty_scaling_factor = penalty_target_sum_limit / actual_penalty_sum if actual_penalty_sum > 0 else 0
-
-    # Sum of max rewards
-    reward_scaling_factor = reward_target_sum_limit / actual_reward_sum if actual_reward_sum > 0 else 0
-
     # Scale and normalize penalties
     scaled_penalties = {}
     for penalty_name, raw_penalty in penalties.items():
         min_val, max_val = penalty_boundaries[penalty_name]
         normalized_penalty = (raw_penalty - min_val) / (max_val - min_val) if max_val != min_val else 0
-        scaled_penalties[penalty_name] = normalized_penalty * penalty_scaling_factor
+        scaled_penalties[penalty_name] = abs(normalized_penalty) * -(1 / 3)
 
     # Scale and normalize rewards
     scaled_rewards = {}
     for reward_name, raw_reward in rewards.items():
         min_val, max_val = reward_boundaries[reward_name]
         normalized_reward = (raw_reward - min_val) / (max_val - min_val) if max_val != min_val else 0
-        scaled_rewards[reward_name] = normalized_reward * reward_scaling_factor
+        scaled_rewards[reward_name] = abs(normalized_reward)
 
     # Combine scaled rewards and penalties
     total_rewards = sum(scaled_rewards.values())
@@ -285,8 +272,6 @@ def calculate_rewards(
     result["scaled_rewards"] = scaled_rewards
     result["unscaled_rewards"] = rewards
     result["unscaled_penalties"] = penalties
-    result["penalty_scaling_factor"] = penalty_scaling_factor
-    result["reward_scaling_factor"] = reward_scaling_factor
     result["total_scaled_rewards"] = total_rewards
     result["total_scaled_penalties"] = total_penalties
     result["total_unscaled_rewards"] = total_unscaled_rewards

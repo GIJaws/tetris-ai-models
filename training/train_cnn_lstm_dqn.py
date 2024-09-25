@@ -100,7 +100,7 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     # Calculate gradient norm before clipping
     grad_norm_before = compute_gradient_norm(policy_net)
 
-    torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 1)
+    torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 1.5)
 
     # Calculate gradient norm after clipping
     grad_norm_after = compute_gradient_norm(policy_net)
