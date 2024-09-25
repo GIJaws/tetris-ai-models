@@ -10,7 +10,7 @@ import gymnasium as gym
 from gymnasium.wrappers import RecordVideo
 import cv2
 from collections import deque
-from gym_simpletetris.tetris.helpful_utils import simplify_board, BASIC_ACTIONS, format_value
+from gym_simpletetris.tetris.helpful_utils import simplify_board, BASIC_ACTIONS, format_value, iterate_nested_dict
 from utils.reward_functions import calculate_reward
 
 
@@ -95,7 +95,7 @@ class ResizeVideoOutput(gym.Wrapper):
                 )
                 foo += 30
 
-            for k, v in ({"    Rewards": []} | self.detailed_info.get("rewards", {})).items():
+            for k, v in iterate_nested_dict(self.detailed_info.get("rewards", {})):
                 cv2.putText(
                     frame,
                     f"{k}: {format_value(v)}",

@@ -14,7 +14,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
 from models.cnn_lstm_dqn import CNNLSTMDQN
-from gym_simpletetris.tetris.helpful_utils import simplify_board, ACTION_COMBINATIONS
+from gym_simpletetris.tetris.helpful_utils import simplify_board, ACTION_COMBINATIONS, iterate_nested_dict
 from utils.my_logging import LoggingManager
 from utils.reward_functions import calculate_board_inputs
 
@@ -37,7 +37,7 @@ HISTORY_LENGTH = 2
 LOG_EPISODE_INTERVAL = 10
 
 # GAME SETTINGS
-INITIAL_LEVEL = 30
+INITIAL_LEVEL = 1
 NUM_LIVES = 0
 
 
@@ -186,7 +186,7 @@ def train():
                 episode_steps += 1
                 total_reward += reward
                 # Accumulate reward components
-                for key, value in detailed_info.get("rewards", {}).items():
+                for key, value in iterate_nested_dict(detailed_info.get("rewards", {})):
                     episode_reward_components[key] = episode_reward_components.get(key, 0) + value
 
                 # Update state
