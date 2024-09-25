@@ -36,17 +36,15 @@ def calculate_reward(board_history, lines_cleared_history, done, info, window_si
     action_history = get_all_actions(info)
     # Calculate rewards
     rewards = calculate_rewards(current_stats, prev_stats, lines_cleared, done, action_history)
-    pls_stop = True
-    total_reward = rewards["total_rewards"] + rewards["total_penalties"]
-    rewards["Total_Reward"] = total_reward
+
     # Combine statistics and rewards
     detailed_info = {
         "current_stats": current_stats,
-        "lines_cleared": lines_cleared,
+        "lines_cleared": lines_cleared,  # TODO remove lines_cleared
         "rewards": rewards,
     }
 
-    return total_reward, detailed_info
+    return rewards["Total_Reward"], detailed_info
 
 
 def get_all_actions(data, count=0, max_depth=10):
@@ -148,7 +146,40 @@ def calculate_board_inputs(board, info):
 
 
 # Updated calculate_rewards function with fix for gravity_timer penalty
-def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history) -> dict[str, int | float]:
+def calculate_rewards(
+    current_stats, prev_stats, lines_cleared, game_over, action_history
+) -> dict[str, dict[str, int | float] | int | float]:
+    """Calculate reward components based on current and previous statistics, with scaling.
+
+    Returns a dictionary with the following structure:
+
+    {
+        "game_over_penalty": 0,
+        "lost_a_life": 0,
+        "scaled_penalties": {
+            "height_penalty": float,
+            "hole_penalty": float,
+            "max_height_diff": float,
+            "hole_diff": float,
+            "gravity_timer": float,
+        },
+        "scaled_rewards": {
+            "lines_cleared_reward": float,
+        },
+        "total_rewards": float,
+        "total_penalties": float,
+        "Total_Reward": float
+    }
+
+    The entries in the dictionary are:
+
+    - game_over_penalty: a negative reward for the game being over
+    - lost_a_life: a negative reward for losing a life
+    - scaled_penalties: a dictionary of scaled penalties for the game
+    - scaled_rewards: a dictionary of scaled rewards for the game
+    - total_rewards: the total of the scaled rewards
+    - total_penalties: the total of the scaled penalties
+    """
     """Calculate reward components based on current and previous statistics, with scaling."""
 
     # Initialize the dictionary to ensure all keys are included
@@ -159,6 +190,7 @@ def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, actio
         "scaled_rewards": {},
         "total_rewards": 0.0,
         "total_penalties": 0.0,
+        "Total_Reward": 0.0,
     }
 
     # If the game is in a new state, return only "new_game"
@@ -167,9 +199,9 @@ def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, actio
         return result
 
     # Determine if the player lost a life
-    lost_a_life = (
-        prev_stats["lives_left"] > current_stats["lives_left"] or prev_stats["deaths"] < current_stats["deaths"]
-    )
+    lost_a_life = prev_stats.get("lives_left", 0) > current_stats.get("lives_left", 0) or prev_stats.get(
+        "deaths", 0
+    ) < current_stats.get("deaths", 0)
 
     # If the game is over, apply game over penalty and return
     if game_over:
@@ -183,19 +215,19 @@ def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, actio
 
     # Raw penalties and rewards
     penalties = {
-        "height_penalty": -0.0025 * current_stats["max_height"],
-        "hole_penalty": -0.0001 * current_stats["holes"],
-        "max_height_diff": 0.5 * (prev_stats["max_height"] - current_stats["max_height"]),
-        "hole_diff": prev_stats["holes"] - current_stats["holes"],
+        "height_penalty": -0.0025 * current_stats.get("max_height", 0),
+        "hole_penalty": -0.0001 * current_stats.get("holes", 0),
+        "max_height_diff": 0.5 * (prev_stats.get("max_height", 0) - current_stats.get("max_height", 0)),
+        "hole_diff": prev_stats.get("holes", 0) - current_stats.get("holes", 0),
         "gravity_timer": 0,
     }
 
-    gravity_threshold = (
-        0.5 * current_stats["gravity_interval"]
+    gravity_threshold = 0.5 * current_stats.get(
+        "gravity_interval", 0
     )  # Start penalizing if gravity timer exceeds 30 when interval is 60
 
-    if current_stats["gravity_timer"] > gravity_threshold:
-        penalties["gravity_timer"] = -0.01 * (current_stats["gravity_timer"] - gravity_threshold) ** 2
+    if current_stats.get("gravity_timer", 0) > gravity_threshold:
+        penalties["gravity_timer"] = -0.01 * (current_stats.get("gravity_timer", 0) - gravity_threshold) ** 2
     else:
         penalties["gravity_timer"] = 0  # No penalty if it's below the threshold
 
@@ -250,8 +282,9 @@ def calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, actio
     # Update the result with the scaled values
     result["scaled_penalties"] = scaled_penalties
     result["scaled_rewards"] = scaled_rewards
-    result["total_rewards"] = total_rewards
-    result["total_penalties"] = total_penalties
+    result["total_rewards_only"] = total_rewards
+    result["total_penalties_only"] = total_penalties
+    result["Total_Reward"] = total_rewards + total_penalties
 
     return result
 
