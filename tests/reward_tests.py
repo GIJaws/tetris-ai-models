@@ -42,54 +42,55 @@ class TestCalculateRewards(unittest.TestCase):
         result = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history)
         self.assertEqual(result["Total_Reward"], 0)
 
-    # def test_game_over(self):
-    #     """
-    #     Test that when the game is over, the penalty is -1.
-    #     """
-    #     current_stats = {"lives_left": 0}
-    #     prev_stats = {"lives_left": 1}
-    #     lines_cleared = 0
-    #     game_over = True
-    #     action_history = []
-    #     result = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history)
-    #     self.assertEqual(result, {"game_over_penalty": -1})
+    def test_game_over(self):
+        """
+        Test that when the game is over, the penalty is -1.
+        """
+        current_stats = {"lives_left": 0}
+        prev_stats = {"lives_left": 1}
+        lines_cleared = 0
+        game_over = True
+        action_history = []
+        result = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history)
+        self.assertEqual(result["game_over_penalty"], -1)
 
-    # def test_life_lost(self):
-    #     """
-    #     Test that when a life is lost, the penalty is -0.9.
-    #     """
-    #     current_stats = {"lives_left": 0}
-    #     prev_stats = {"lives_left": 1}
-    #     lines_cleared = 0
-    #     game_over = False
-    #     action_history = []
-    #     result = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history)
-    #     self.assertEqual(result, {"lost_a_life": -0.9})
+    # TODO refactor test_life_lost, test_no_life_lost, and test_gravity_timer_exceeds_threshold to
+    def test_life_lost(self):
+        """
+        Test that when a life is lost, the penalty is -0.9.
+        """
+        current_stats = {"lives_left": 0}
+        prev_stats = {"lives_left": 1}
+        lines_cleared = 0
+        game_over = False
+        action_history = []
+        result = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history)
+        self.assertEqual(result["lost_a_life"], -0.9)
 
-    # def test_no_life_lost(self):
-    #     """
-    #     Test that when no life is lost, the result contains the scaled penalties and rewards.
-    #     """
-    #     current_stats = {"lives_left": 1}
-    #     prev_stats = {"lives_left": 1}
-    #     lines_cleared = 0
-    #     game_over = False
-    #     action_history = []
-    #     result = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history)
-    #     self.assertIsNotNone(result["scaled_penalties"])
-    #     self.assertIsNotNone(result["scaled_rewards"])
+    def test_no_life_lost(self):
+        """
+        Test that when no life is lost, the result contains the scaled penalties and rewards.
+        """
+        current_stats = {"lives_left": 1}
+        prev_stats = {"lives_left": 1}
+        lines_cleared = 0
+        game_over = False
+        action_history = []
+        result = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history)
+        self.assertIsNotNone(result["scaled_penalties"])
+        self.assertIsNotNone(result["scaled_rewards"])
 
-    # def test_gravity_timer_exceeds_threshold(self):
-    #     """
-    #     Test that when the gravity timer exceeds the threshold, the penalty is negative.
-    #     """
-    #     current_stats = {"gravity_timer": 30, "gravity_interval": 60}
-    #     prev_stats = {"gravity_timer": 0}
-    #     lines_cleared = 0
-    #     game_over = False
-    #     action_history = []
-    #     result = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history)
-    #     self.assertLess(result["scaled_penalties"]["gravity_timer"], 0)
+    def test_gravity_timer_exceeds_threshold(self):
+        """
+        Test that when the gravity timer exceeds the threshold, the penalty is negative.
+        """
+        current_stats = {"gravity_timer": 30, "gravity_interval": 60}
+        prev_stats = {"gravity_timer": 0}
+        lines_cleared = 0
+        game_over = False
+        action_history = []
+        result = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history)
+        self.assertLess(result["scaled_penalties"]["gravity_timer"], 0)
 
     # def test_gravity_timer_does_not_exceed_threshold(self):
     #     """
