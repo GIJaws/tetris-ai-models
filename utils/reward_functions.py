@@ -218,20 +218,17 @@ def calculate_rewards(
         return result
 
     # Start penalizing if gravity timer exceeds 30 when interval is 60
-    gravity_interval = current_stats.get("gravity_interval", 0)
+    gravity_interval = current_stats.get("gravity_interval", 1)
     gravity_threshold = gravity_interval // 2
 
     grav_timer = current_stats.get("gravity_timer", 0)
 
-    hole_diff = prev_stats.get("holes", 0) - current_stats.get("holes", 0)
-
-    max_height_diff = prev_stats.get("max_height", 0) - current_stats.get("max_height", 0)
     # Raw penalties and rewards
     penalties = {
         "height_penalty": current_stats.get("max_height", 0),
         "hole_penalty": current_stats.get("holes", 0),
-        "max_height_diff_penalty": min(max_height_diff, 0),
-        "hole_diff_penalty": min(hole_diff, 0),
+        # "max_height_diff_penalty": min(prev_stats.get("max_height", 0) - current_stats.get("max_height", 0), 0),
+        # "hole_diff_penalty": min(prev_stats.get("holes", 0) - current_stats.get("holes", 0), 0),
         "gravity_timer": grav_timer * (grav_timer >= gravity_threshold),
     }
 
@@ -243,9 +240,9 @@ def calculate_rewards(
     penalty_boundaries = {
         "height_penalty": (0, 20),
         "hole_penalty": (0, 200),
-        "max_height_diff_penalty": (-10.5, 0),
-        "hole_diff_penalty": (-200, 0),
-        "gravity_timer": (gravity_threshold, gravity_interval),
+        # "max_height_diff_penalty": (-10.5, 0),
+        # "hole_diff_penalty": (-200, 0),
+        "gravity_timer": (0, gravity_interval),
     }
 
     reward_boundaries = {"lines_cleared_reward": (0, 32)}
@@ -263,17 +260,19 @@ def calculate_rewards(
     # Sum of max rewards
     reward_scaling_factor = reward_target_sum_limit / actual_reward_sum if actual_reward_sum > 0 else 0
 
-    # Scale penalties
+    # Scale and normalize penalties
     scaled_penalties = {}
     for penalty_name, raw_penalty in penalties.items():
         min_val, max_val = penalty_boundaries[penalty_name]
-        scaled_penalties[penalty_name] = raw_penalty * penalty_scaling_factor
+        normalized_penalty = (raw_penalty - min_val) / (max_val - min_val) if max_val != min_val else 0
+        scaled_penalties[penalty_name] = normalized_penalty * penalty_scaling_factor
 
-    # Scale rewards
+    # Scale and normalize rewards
     scaled_rewards = {}
     for reward_name, raw_reward in rewards.items():
         min_val, max_val = reward_boundaries[reward_name]
-        scaled_rewards[reward_name] = raw_reward * reward_scaling_factor
+        normalized_reward = (raw_reward - min_val) / (max_val - min_val) if max_val != min_val else 0
+        scaled_rewards[reward_name] = normalized_reward * reward_scaling_factor
 
     # Combine scaled rewards and penalties
     total_rewards = sum(scaled_rewards.values())
@@ -286,6 +285,8 @@ def calculate_rewards(
     result["scaled_rewards"] = scaled_rewards
     result["unscaled_rewards"] = rewards
     result["unscaled_penalties"] = penalties
+    result["penalty_scaling_factor"] = penalty_scaling_factor
+    result["reward_scaling_factor"] = reward_scaling_factor
     result["total_scaled_rewards"] = total_rewards
     result["total_scaled_penalties"] = total_penalties
     result["total_unscaled_rewards"] = total_unscaled_rewards

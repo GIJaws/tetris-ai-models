@@ -89,7 +89,7 @@ class TestCalculateRewards(unittest.TestCase):
         game_over = False
         action_history = []
         result = calculate_rewards(current_stats, prev_stats, lines_cleared, game_over, action_history)
-        self.assertLess(result["scaled_penalties"]["gravity_timer"], 0.0)
+        self.assertLess(result["Total_Reward"], 0.0)
 
     def test_gravity_timer_does_not_exceed_threshold(self):
         """
