@@ -57,7 +57,7 @@ class ReplayMemory:
 
 def optimize_model(memory, policy_net, target_net, optimizer):
     if len(memory) < BATCH_SIZE:
-        return None  # No loss to report
+        return None, (np.nan, np.nan)  # No loss to report
 
     transitions = memory.sample(BATCH_SIZE)
     batch = list(zip(*transitions))
@@ -96,10 +96,26 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     # Optimize the model
     optimizer.zero_grad()
     loss.backward()
+
+    # Calculate gradient norm before clipping
+    grad_norm_before = compute_gradient_norm(policy_net)
+
     torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 1)
+
+    # Calculate gradient norm after clipping
+    grad_norm_after = compute_gradient_norm(policy_net)
     optimizer.step()
 
-    return loss.item()
+    return loss.item(), (grad_norm_before, grad_norm_after)
+
+
+def compute_gradient_norm(model):
+    total_norm = 0
+    for p in model.parameters():
+        if p.grad is not None:
+            param_norm = p.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+    return total_norm**0.5
 
 
 def select_action(state, policy_net, steps_done, n_actions):
@@ -212,9 +228,11 @@ def train():
                 )
 
                 # Optimize the model
-                loss = optimize_model(memory, policy_net, target_net, optimizer)
+                loss, grad_norms = optimize_model(memory, policy_net, target_net, optimizer)
 
                 total_steps_done += 1
+
+                logger.log_every_step(episode=episode, step=total_steps_done, grad_norms=grad_norms)
 
             # Log metrics to TensorBoard and files
             logger.log_every_episode(
