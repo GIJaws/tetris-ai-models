@@ -21,10 +21,10 @@ class CNNLSTMDQN(nn.Module):
         self.bn3 = nn.BatchNorm2d(64)
         self.dropout3 = nn.Dropout2d(p=0.3)
 
-        conv_out_size = self._get_conv_output(input_shape)
+        self.conv_out_size = self._get_conv_output(input_shape)
 
         # LSTM for processing CNN output
-        self.lstm = nn.LSTM(conv_out_size, 256, batch_first=True)
+        self.lstm = nn.LSTM(self.conv_out_size, 256, batch_first=True)
 
         # Linear layer for processing additional features
         self.features_fc = nn.Linear(n_features, 64)
@@ -35,7 +35,7 @@ class CNNLSTMDQN(nn.Module):
         self.dropout = nn.Dropout(p=0.4)
         self.fc = nn.Linear(128, n_actions)
 
-    def _get_conv_output(self, shape):
+    def _get_conv_output(self, shape) -> int:
         with torch.no_grad():
             o = self.conv1(torch.zeros(1, 1, *shape))
             o = self.bn1(o)

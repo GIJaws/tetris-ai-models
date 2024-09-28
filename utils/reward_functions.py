@@ -1,9 +1,10 @@
+from typing import cast
 import numpy as np
 from scipy import ndimage
 from gym_simpletetris.tetris.tetris_shapes import SHAPE_NAMES
 
 
-def calculate_reward(board_history, lines_cleared_history, done, info, window_size=5):
+def calculate_reward(board_history, done, info) -> tuple[float, dict]:
     """
     Calculate the reward and detailed statistics based on the history of board states and lines cleared.
 
@@ -11,7 +12,6 @@ def calculate_reward(board_history, lines_cleared_history, done, info, window_si
         board_history (deque): History of board states (each as 2D numpy arrays).
         lines_cleared_history (deque): History of lines cleared per step.
         game_over (bool): Flag indicating if the game has ended.
-        window_size (int): Number of recent states to consider.
 
     Returns:
         float: Total reward.
@@ -24,27 +24,23 @@ def calculate_reward(board_history, lines_cleared_history, done, info, window_si
     current_stats = calculate_board_statistics(settled_board, info)
 
     # Calculate previous board statistics (if available)
+    # TODO implement penalty if spamming the same action
     if len(board_history) > 1:
         prev_board = remove_floating_blocks(board_history[-2])
         prev_stats = calculate_board_statistics(prev_board, info.get("prev_info", {}))
     else:
         prev_stats = {}
 
-    # Calculate lines cleared
-    lines_cleared = lines_cleared_history[-1] if lines_cleared_history else 0
-
-    action_history = get_all_actions(info)
     # Calculate rewards
-    rewards = calculate_rewards(current_stats, prev_stats, lines_cleared, done, action_history)
+    rewards = calculate_rewards(current_stats, prev_stats, info["lines_cleared_per_step"], done)
 
     # Combine statistics and rewards
-    detailed_info = {
+    extra_info = {
         "current_stats": current_stats,
-        "lines_cleared": lines_cleared,  # TODO remove lines_cleared
         "rewards": rewards,
     }
 
-    return rewards["Total_Reward"], detailed_info
+    return cast(float, rewards["total_scaled_rewards+penalties"]), extra_info
 
 
 def get_all_actions(data, count=0, max_depth=10):
@@ -87,7 +83,7 @@ def calculate_board_statistics(board, info):
     heights = get_column_heights(board)
 
     return {
-        "time": info.get("time", 0),
+        "time": info.get("time", np.nan),
         "max_height": np.max(heights),
         "avg_height": np.mean(heights),
         "min_height": np.min(heights),
@@ -96,12 +92,13 @@ def calculate_board_statistics(board, info):
         "bumpiness": np.sum(np.abs(np.diff(heights))),
         "density": np.sum(board) / (board.shape[0] * board.shape[1]),
         "max_height_density": np.sum(board) / max(1, (board.shape[0] * np.max(heights))),
-        "lives_left": info.get("lives_left", 0),
-        "deaths": info.get("deaths", 0),
-        "level": info.get("level", 0),
+        "lives_left": info.get("lives_left", np.nan),
+        "deaths": info.get("deaths", np.nan),
+        "level": info.get("level", np.nan),
         "gravity_timer": info.get("gravity_timer", 0),
-        "gravity_interval": info.get("gravity_interval", 0),
-        "anchor": info.get("anchor", (-99, -99)),
+        "piece_timer": info.get("piece_timer", 0),
+        "gravity_interval": info.get("gravity_interval", 60),
+        "anchor": info.get("anchor", (np.nan, np.nan)),
     }
 
     # "well_depth": calculate_well_depth(board),
@@ -109,12 +106,10 @@ def calculate_board_statistics(board, info):
     # "row_transitions": calculate_row_transitions(board),
 
 
-def calculate_board_inputs(board, info):  # TODO move this function to somewhere more relevant
+def calculate_board_inputs(board, info, num_actions=20):  # TODO move this function to somewhere more relevant
     """Calculate detailed statistics for a given board state. Used for model input."""
     heights = get_column_heights(board)
     actions: list[int] = get_all_actions(info)
-
-    num_actions = 20
 
     padded_actions = actions[:num_actions] + [-99] * (
         num_actions - len(actions)
@@ -151,9 +146,8 @@ def calculate_board_inputs(board, info):  # TODO move this function to somewhere
     }
 
 
-# Updated calculate_rewards function with fix for gravity_timer penalty
 def calculate_rewards(
-    current_stats, prev_stats, lines_cleared, game_over, action_history
+    current_stats, prev_stats, lines_cleared, game_over
 ) -> dict[str, dict[str, int | float] | int | float]:
     """Calculate reward components based on current and previous statistics, with scaling.
 
@@ -167,7 +161,7 @@ def calculate_rewards(
             "hole_penalty": float,
             "max_height_diff_penalty": float,
             "hole_diff_penalty": float,
-            "gravity_timer": float,
+            "piece_timer": float,
         },
         "scaled_rewards": {
             "lines_cleared_reward": float,
@@ -195,8 +189,8 @@ def calculate_rewards(
     # Initialize the dictionary to ensure all keys are included
     # TODO make this into a pydantic class
     result = {
-        "game_over_penalty": 0,
-        "lost_a_life": 0,
+        "game_over_penalty": 0.0,
+        "lost_a_life": 0.0,
         "scaled_rewards_dict": {},
         "unscaled_rewards_dict": {},
         "scaled_penalties_dict": {},
@@ -205,8 +199,8 @@ def calculate_rewards(
         "total_unscaled_rewards": 0.0,
         "total_scaled_penalties": 0.0,
         "total_unscaled_penalties": 0.0,
-        "Total_Reward": 0.0,
-        "Total_unscaled_rewards+penalties": 0.0,
+        "total_scaled_rewards+penalties": 0.0,
+        "total_unscaled_rewards+penalties": 0.0,
     }
 
     # If the game is in a new state, return only "new_game"
@@ -231,10 +225,9 @@ def calculate_rewards(
         return result
 
     # Start penalizing if gravity timer exceeds 30 when interval is 60
-    gravity_interval = current_stats.get("gravity_interval", 1)
-    gravity_threshold = gravity_interval // 4
+    piece_threshold = 10
 
-    grav_timer = current_stats.get("gravity_timer", 0)
+    piece_timer = current_stats.get("piece_timer", 0)
 
     # Raw penalties and rewards
     unscaled_penalties: dict[str, float] = {
@@ -242,7 +235,7 @@ def calculate_rewards(
         "hole_penalty": current_stats.get("holes", 0),
         # "max_height_diff_penalty": min(prev_stats.get("max_height", 0) - current_stats.get("max_height", 0), 0),
         # "hole_diff_penalty": min(prev_stats.get("holes", 0) - current_stats.get("holes", 0), 0),
-        "gravity_timer": grav_timer * (grav_timer >= gravity_threshold),
+        "piece_timer": piece_timer * (piece_timer >= piece_threshold),
     }
 
     unscaled_rewards: dict[str, float] = {
@@ -255,7 +248,7 @@ def calculate_rewards(
         "hole_penalty": (0, 200),
         # "max_height_diff_penalty": (-10.5, 0),
         # "hole_diff_penalty": (-200, 0),
-        "gravity_timer": (0, gravity_interval),
+        "piece_timer": (0, piece_threshold * 2),
     }
 
     reward_boundaries: dict[str, tuple[float, float]] = {"lines_cleared_reward": (0, 32)}
@@ -293,8 +286,8 @@ def calculate_rewards(
     result["total_scaled_penalties"] = total_scaled_penalties
     result["total_unscaled_penalties"] = total_unscaled_penalties
 
-    result["Total_Reward"] = total_scaled_rewards + total_scaled_penalties
-    result["Total_unscaled_rewards+penalties"] = total_unscaled_rewards + total_unscaled_penalties
+    result["total_scaled_rewards+penalties"] = total_scaled_rewards + total_scaled_penalties
+    result["total_unscaled_rewards+penalties"] = total_unscaled_rewards + total_unscaled_penalties
 
     return result
 

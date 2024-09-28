@@ -1,274 +1,125 @@
 import numpy as np
 import torch
-import torch.optim as optim
-import torch.nn.functional as F
-from collections import deque
-import random
-import math
 import gymnasium as gym
 import gym_simpletetris
 import sys
 import os
+from typing import cast
+
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
-from models.cnn_lstm_dqn import CNNLSTMDQN
-from gym_simpletetris.tetris.tetris_shapes import simplify_board, ACTION_COMBINATIONS
-from gym_simpletetris.tetris.helpful_utils import iterate_nested_dict
+from gym_simpletetris.tetris.tetris_shapes import ACTION_COMBINATIONS, simplify_board
+from gym_simpletetris.tetris.tetris_env import TetrisEnv
 from utils.my_logging import LoggingManager
-from utils.reward_functions import calculate_board_inputs
+from utils.config import load_config
+from agents.CNNLSTMDQNAgent import CNNLSTMDQNAgent
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Hyperparameters
-BATCH_SIZE = 2  # 1024
-GAMMA = 0.99
-EPS_START = 1.0
-EPS_END = 0.01
-EPS_DECAY = 100000
-TARGET_UPDATE = 2  # 500
-MEMORY_SIZE = 100000
-LEARNING_RATE = 1e-4
-NUM_EPISODES = 50000
-SEQUENCE_LENGTH = 20
-HISTORY_LENGTH = 2
 
-# LOGGING PARAMS
-LOG_EPISODE_INTERVAL = 10
-
-# GAME SETTINGS
-INITIAL_LEVEL = 1
-NUM_LIVES = 0
-
-
-class ReplayMemory:
-    # TODO make this prioritise memories with actions that lead to a higher reward
-    def __init__(self, capacity):
-        self.memory = deque(maxlen=capacity)
-
-    def push(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
-
-    def sample(self, batch_size):
-        return random.sample(self.memory, batch_size)
-
-    def __len__(self):
-        return len(self.memory)
-
-
-def optimize_model(memory, policy_net, target_net, optimizer) -> tuple[float, tuple[float, float]]:
-    if len(memory) < BATCH_SIZE:
-        return np.nan, (np.nan, np.nan)  # No loss to report
-
-    transitions = memory.sample(BATCH_SIZE)  # TODO is this correct?
-    batch = list(zip(*transitions))
-
-    state_features = batch[0]
-    state_batch, features_batch = zip(*state_features)
-    state_batch = torch.cat(state_batch)
-    features_batch = torch.cat(features_batch)
-
-    next_state_features = batch[3]
-    next_state_batch, next_features_batch = zip(*next_state_features)
-    next_state_batch = torch.cat(next_state_batch)
-    next_features_batch = torch.cat(next_features_batch)
-
-    action_batch = torch.cat(batch[1])
-    reward_batch = torch.tensor(batch[2], dtype=torch.float32, device=device)
-    done_batch = torch.tensor(batch[4], dtype=torch.bool, device=device)
-
-    # Compute Q(s_t, a)
-    state_action_values = policy_net((state_batch, features_batch)).gather(1, action_batch)
-
-    # Compute V(s_{t+1})
-    with torch.no_grad():
-        next_state_values = torch.zeros(BATCH_SIZE, device=device)
-        non_final_mask = ~done_batch
-        if non_final_mask.sum() > 0:
-            next_state_values[non_final_mask] = target_net(
-                (next_state_batch[non_final_mask], next_features_batch[non_final_mask])
-            ).max(1)[0]
-
-    # Compute the expected Q values
-    expected_state_action_values = (next_state_values * GAMMA) + reward_batch
-
-    # Compute Huber loss
-    loss = F.smooth_l1_loss(state_action_values.squeeze(), expected_state_action_values)
-    # Optimize the model
-    optimizer.zero_grad()
-    loss.backward()
-
-    # Calculate gradient norm before clipping
-    grad_norm_before = compute_gradient_norm(policy_net)
-
-    torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 5)
-
-    # Calculate gradient norm after clipping
-    grad_norm_after = compute_gradient_norm(policy_net)
-    optimizer.step()
-
-    return loss.item(), (grad_norm_before, grad_norm_after)
-
-
-def compute_gradient_norm(model) -> float:
-    total_norm: float = 0
-    for p in model.parameters():
-        if p.grad is not None:
-            param_norm = p.grad.data.norm(2)
-            total_norm += param_norm.item() ** 2
-    return total_norm**0.5
-
-
-def select_action(state, policy_net, steps_done, n_actions):
-    sample = random.random()
-    eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1.0 * steps_done / EPS_DECAY)
-    with torch.no_grad():
-        q_values = policy_net(state)
-        original_action: int = q_values.max(-1)[1].item()
-
-    is_random_action = sample < eps_threshold
-
-    action = original_action if is_random_action else random.randrange(n_actions)
-
-    return original_action, action, eps_threshold, q_values, is_random_action
-
-
-def train():
-    logger = LoggingManager(model_name="cnn_lstm_dqn")
-    render_mode = "rgb_array"
-    env = gym.make("SimpleTetris-v0", render_mode=render_mode, initial_level=INITIAL_LEVEL, num_lives=NUM_LIVES)
+def train(config_path):
+    config = load_config(config_path)
+    logger = LoggingManager(model_name=config.MODEL_NAME)
 
     # TODO NEED TO MOVE REWARD FUNCTION OUT OF THE LOGGER SO I CAN EASILY SWITCH IT OUT
-    env = logger.setup_video_recording(env, video_every_n_episodes=100)  # Automate video recording
-
-    n_actions = len(ACTION_COMBINATIONS)
+    env: TetrisEnv = cast(
+        TetrisEnv,
+        logger.setup_video_recording(  # Automate video recording
+            gym.make(
+                config.ENV_ID,
+                render_mode=config.RENDER_MODE,
+                initial_level=config.INITIAL_LEVEL,
+                num_lives=config.NUM_LIVES,
+            ),
+            video_every_n_episodes=config.VIDEO_EVERY_N_EPISODES,
+        ),
+    )
 
     # Initialize networks
     state, info = env.reset()
-    state = simplify_board(state)
-    input_shape = (state.shape[0], state.shape[1])
+    state_simple = simplify_board(state)
+    input_shape = (state_simple.shape[0], state_simple.shape[1])
 
-    policy_net = CNNLSTMDQN(input_shape, n_actions, n_features=41).to(device)
-    target_net = CNNLSTMDQN(input_shape, n_actions, n_features=41).to(device)
-    target_net.load_state_dict(policy_net.state_dict())
-    target_net.eval()
+    agent = CNNLSTMDQNAgent(state_simple, input_shape, env.action_space, config, device)
 
-    optimizer = optim.Adam(policy_net.parameters(), lr=LEARNING_RATE, weight_decay=1e-5)
-    memory = ReplayMemory(MEMORY_SIZE)
-
-    # Metrics tracking
-    total_steps_done: int = 0
-    eps_threshold: float = EPS_START
-
+    eps_threshold: float = config.EPS_START
     try:
-        for episode in range(1, NUM_EPISODES + 1):
-            state, info = env.reset()
-            state = simplify_board(state)
-
-            state_deque = deque([state] * SEQUENCE_LENGTH, maxlen=SEQUENCE_LENGTH)
+        for episode in range(1, config.NUM_EPISODES + 1):
             done = False
-            total_reward: float = 0.0
-            loss = None
+            loss: float = np.nan
             episode_q_values = []
-            episode_steps: int = 0
+            cur_episode_steps: int = 0
+            episode_cumulative_reward: float = 0.0
+
+            state, info = env.reset()
+            state_simple = simplify_board(state)
 
             current_episode_action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
-            episode_reward_components = {}
-            info = {}
+
+            agent.reset(state_simple)
+
             while not done:
-                state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
-
-                # Calculate additional features
-                board_features = calculate_board_inputs(state, info)
-                features_tensor = torch.tensor(
-                    [list(board_features.values())],
-                    dtype=torch.float32,
-                    device=device,
+                prev_info = info
+                selected_action, (policy_action, eps_threshold, step_q_values, is_random_action) = agent.select_action(
+                    state_simple, info, env.total_steps
                 )
 
-                combined_state = (state_tensor, features_tensor)
+                episode_q_values.append(step_q_values.cpu().numpy())
 
-                original_action, action, eps_threshold, step_q_values, is_random_action = select_action(
-                    combined_state, policy_net, total_steps_done, n_actions
+                # TODO lets track the policy actions and the selected action instead of only the selected action
+                current_episode_action_count[selected_action] += 1
+                next_state_simple, step_reward, terminated, truncated, info = env.step(
+                    ACTION_COMBINATIONS[selected_action]
                 )
-                current_episode_action_count[action] += 1
 
-                if step_q_values is not None:
-                    episode_q_values.append(step_q_values.cpu().numpy())
+                next_state_simple = simplify_board(next_state_simple)
 
-                next_state, reward, terminated, truncated, info = env.step(ACTION_COMBINATIONS[action])
                 done = terminated or truncated
+                episode_cumulative_reward += step_reward
 
-                detailed_info = info.get("detailed_info", {})
-                next_state = simplify_board(next_state)
+                agent.update(state_simple, selected_action, step_reward, next_state_simple, done, prev_info, info)
+                loss, grad_norms = agent.optimize_model()
 
-                episode_steps += 1
-                total_reward += reward
-                # Accumulate reward components
-                for key, value in iterate_nested_dict(detailed_info.get("rewards", {})):
-                    episode_reward_components[key] = episode_reward_components.get(key, 0) + value
+                cur_episode_steps += 1
+                state_simple = next_state_simple
 
-                # Update state
-                state_deque.append(next_state)
-                next_state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(
-                    0
+                logger.log_every_step(
+                    total_steps=env.total_steps,
+                    grad_norms=grad_norms,
+                    loss=loss,
+                    eps_threshold=eps_threshold,
+                    info=info,
                 )
 
-                next_board_features = calculate_board_inputs(next_state, info)
-                next_features_tensor = torch.tensor(
-                    [list(next_board_features.values())],
-                    dtype=torch.float32,
-                    device=device,
-                )
-
-                # Store transition in memory
-                memory.push(
-                    (state_tensor, features_tensor),
-                    torch.tensor([[action]], device=device, dtype=torch.long),
-                    reward,
-                    (next_state_tensor, next_features_tensor),
-                    done,
-                )
-
-                # Optimize the model
-                loss, grad_norms = optimize_model(memory, policy_net, target_net, optimizer)
-
-                total_steps_done += 1
-
-                logger.log_every_step(total_steps=total_steps_done, grad_norms=grad_norms, reward=reward)
-
-            # Log metrics to TensorBoard and files
-            logger.log_every_episode(
-                episode=episode,
-                episode_reward=total_reward,
-                steps=episode_steps,
-                lines_cleared=info.get("lines_cleared", 0),
-                epsilon=eps_threshold,
-                loss=loss,
-                q_values=episode_q_values,
-                action_count=current_episode_action_count,
-                reward_components=episode_reward_components,
-                log_interval=LOG_EPISODE_INTERVAL,
+            logger.log_to_tensorboard_every_episode(
+                episode,
+                episode_cumulative_reward,
+                cur_episode_steps,
+                info["total_lines_cleared"],
+                eps_threshold,
+                episode_q_values,
             )
+            logger.log_action_distribution_tensorboard(current_episode_action_count, episode)
+            logger.log_hardware_usage_tensorboard(episode)
 
-            # Update target network
-            if episode % TARGET_UPDATE == 0:
-                target_net.load_state_dict(policy_net.state_dict())
+            if episode % config.TARGET_UPDATE == 0:
+                agent.update_target_network()
 
             # Save the trained model every SAVE_MODEL_INTERVAL
             if episode % 100 == 0:
-                torch.save(policy_net.state_dict(), logger.get_model_path(episode))
-
+                agent.save_model(logger.get_model_path(episode))
     except KeyboardInterrupt:
         print("Training interrupted by user.")
 
     finally:
         # Save the final model
-        torch.save(policy_net.state_dict(), logger.get_model_path())
+        agent.save_model(logger.get_model_path())
         env.close()
         logger.close_logging()
 
 
 if __name__ == "__main__":
-    train()
+    config_path = r"tetris-ai-models\config\train_cnn_lstm_dqn.yaml"
+    train(config_path)

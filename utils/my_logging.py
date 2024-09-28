@@ -1,5 +1,4 @@
 import logging
-import math
 import psutil
 import torch
 import numpy as np
@@ -28,13 +27,16 @@ class ResizeVideoOutput(gym.Wrapper):
         self.total_reward = 0
         self.total_lines_cleared = 0
         # For reward calculation
-        self.board_history = deque(maxlen=5)
-        self.lines_cleared_history = deque(maxlen=5)
-        self.detailed_info = {}
+        self.board_history = deque(maxlen=5)  # THIS BOARD HISTORY IS TO BE ONLY USED FOR REWARD FUNCTION
         self.actions: list[int] = []
         self.font = font
 
+        self.extra_info = {}
+
     def step(self, action):
+        # TODO THIS IS REALLY STUPID HOW I AM OVERRIDING THE STEP METHOD TO GET THE REWARD VALUES SHOULD CREATE NEW
+        # ! WRAPPER FOR THE REWARD FUNCTION STUFF AND KEEP THIS JUST FOR VIDEO OUTPUT, CAN PUT THE REQUIRED INFO IN
+        # !  THE INFO dict
         self.actions = action
         obs, reward, terminated, truncated, info = self.env.step(action)
         done = terminated or truncated
@@ -43,12 +45,10 @@ class ResizeVideoOutput(gym.Wrapper):
         board_state = simplify_board(obs)
         self.board_history.append(board_state)
 
-        self.lines_cleared_history.append(info.get("lines_cleared", 0))
-
         # Calculate custom reward
-        reward, self.detailed_info = calculate_reward(self.board_history, self.lines_cleared_history, done, info)
+        reward, self.extra_info = calculate_reward(self.board_history, done, info)
         self.total_reward += reward
-        info["detailed_info"] = self.detailed_info
+        info["extra_info"] = self.extra_info
 
         return obs, reward, terminated, truncated, info
 
@@ -56,8 +56,7 @@ class ResizeVideoOutput(gym.Wrapper):
         self.total_reward = 0
         self.total_lines_cleared = 0
         self.board_history.clear()
-        self.detailed_info = {}
-        self.lines_cleared_history.clear()
+        self.extra_info = {}
         return self.env.reset(**kwargs)
 
     def render(self, mode="rgb_array", **kwargs):
@@ -88,7 +87,7 @@ class ResizeVideoOutput(gym.Wrapper):
             )
             foo += 30
 
-            for k, v in ({"    Stats": []} | self.detailed_info.get("current_stats", {})).items():
+            for k, v in ({"    Stats": []} | self.extra_info.get("current_stats", {})).items():
                 cv2.putText(
                     frame,
                     f"{k}: {format_value(v)}",
@@ -100,7 +99,7 @@ class ResizeVideoOutput(gym.Wrapper):
                 )
                 foo += 30
 
-            for k, v in iterate_nested_dict(self.detailed_info.get("rewards", {})):
+            for k, v in iterate_nested_dict(self.extra_info.get("rewards", {})):
                 cv2.putText(
                     frame,
                     f"{k}: {format_value(v)}",
@@ -180,17 +179,34 @@ class LoggingManager:
         env = RecordVideo(
             env,
             video_folder=video_dir,
-            episode_trigger=lambda episode_id: episode_id % video_every_n_episodes == 0
-            or episode_id in [6, 10, 15, 25, 50, 80, 130, 150, 180, 250],
+            episode_trigger=lambda episode_id: episode_id % video_every_n_episodes == 0,
         )
         return env
 
-    def log_every_step(self, total_steps: int, grad_norms: tuple[float, float], reward: float):
-        # Log gradient norms
-        self.writer.add_scalar("Steps/GradientNormBeforeClipping", grad_norms[0], total_steps)
-        self.writer.add_scalar("Steps/GradientNormAfterClipping", grad_norms[1], total_steps)
+    def log_every_step(
+        self,
+        total_steps: int,
+        grad_norms: tuple[float, float],
+        loss: float,
+        eps_threshold: float,
+        info,
+    ):
 
-        self.writer.add_scalar("Steps/Reward", reward, total_steps)
+        extra_info = info["extra_info"]
+        # Log gradient norms
+        self.writer.add_scalar("StepsStats/GradientNormBeforeClipping", grad_norms[0], total_steps)
+        self.writer.add_scalar("StepsStats/GradientNormAfterClipping", grad_norms[1], total_steps)
+
+        self.writer.add_scalar("StepsStats/loss", loss, total_steps)
+        self.writer.add_scalar("StepsStats/eps_threshold", eps_threshold, total_steps)
+
+        for k, v in iterate_nested_dict(extra_info["current_stats"]):
+            if isinstance(v, (list, tuple)):
+                continue
+            self.writer.add_scalar(f"StepsStats/{k}", v, total_steps)
+
+        for k, v in iterate_nested_dict(extra_info["rewards"]):
+            self.writer.add_scalar(f"StepRewards/{k}", v, total_steps)
 
     def get_model_path(self, episode: int | None = None) -> str:
         if episode:
@@ -211,12 +227,11 @@ class LoggingManager:
         episode: int,
         episode_reward: float,
         steps: int,
-        lines_cleared: int,
         epsilon: float,
         avg_loss: float,
     ):
         self.logger.info(
-            f"Episode {episode}: Reward={episode_reward:.2f}, Steps={steps}, Lines Cleared={lines_cleared}, "
+            f"Episode {episode}: Reward={episode_reward:.2f}, Steps={steps}, "
             f"Epsilon={epsilon:.4f}, Avg Loss={avg_loss:.6f}"
         )
 
@@ -248,25 +263,19 @@ class LoggingManager:
         self,
         episode: int,
         episode_reward: float,
-        steps: int,
+        episode_steps: int,
         lines_cleared: int,
         epsilon: float,
-        loss: float | None,
-        q_values: torch.tensor,
-        reward_components: dict[str, float],
+        q_values,
     ):
         if self.writer is None:
             return
 
         # Log basic episode metrics
         self.writer.add_scalar("Episode/Reward", episode_reward, episode)
-        self.writer.add_scalar("Episode/Steps", steps, episode)
+        self.writer.add_scalar("Episode/Steps", episode_steps, episode)
         self.writer.add_scalar("Episode/Lines Cleared", lines_cleared, episode)
         self.writer.add_scalar("Episode/Epsilon", epsilon, episode)
-
-        # Log loss if available
-        if loss is not None:
-            self.writer.add_scalar("Training/Loss", loss, episode)
 
         # Log Q-values statistics
         if q_values:
@@ -278,10 +287,6 @@ class LoggingManager:
             self.writer.add_scalar("Q-Values/Min", min_q, episode)
             self.writer.add_scalar("Q-Values/Max", max_q, episode)
             self.writer.add_scalar("Q-Values/StdDev", std_q, episode)
-
-        # Log reward components
-        for component_name, value in reward_components.items():
-            self.writer.add_scalar(f"Reward Components/{component_name}", value, episode)
 
     # Add a method to log reward components to file
     def log_reward_components_file(self, reward_components: dict[str, float], episode: int):
@@ -314,39 +319,39 @@ class LoggingManager:
             self.writer.add_scalar("Hardware/VRAM Usage", vram_usage, episode)
 
     # Unified Logging Method for Each Episode
-    def log_every_episode(
-        self,
-        episode: int,
-        episode_reward: float,
-        steps: int,
-        lines_cleared: int,
-        epsilon: float,
-        loss: float | None,
-        q_values: torch.tensor,
-        action_count: dict[int, int],
-        reward_components: dict[str, float],
-        log_interval=10,
-    ):
-        # Log to files periodically
-        if episode % log_interval == 0:
-            self.log_episode_info_file(episode, episode_reward, steps, lines_cleared, epsilon, loss)
-        if episode % log_interval == 0:
-            self.log_q_values_file(episode, q_values)
-        if episode % log_interval == 0:
-            self.log_action_distribution_file(action_count, episode)
-        if episode % log_interval == 0 and loss is not None:
-            self.log_loss_file(loss, episode)
-        if episode % log_interval == 0:
-            self.log_hardware_usage_file(episode)
-        if episode % log_interval == 0:
-            self.log_reward_components_file(reward_components, episode)  # Log reward components to file
+    # def log_episode_end(
+    #     self,
+    #     episode: int,
+    #     episode_reward: float,
+    #     episode_steps: int,
+    #     total_lines_cleared: int,
+    #     epsilon: float,
+    #     # loss: float,
+    #     q_values: torch.tensor,
+    #     action_count: dict[int, int],
+    #     reward_components: dict[str, float],
+    #     log_interval=10,
+    # ):
+    #     # Log to files periodically
+    #     if episode % log_interval == 0:
+    #         self.log_episode_info_file(episode, episode_reward, episode_steps, total_lines_cleared, epsilon)
+    #     if episode % log_interval == 0:
+    #         self.log_q_values_file(episode, q_values)
+    #     if episode % log_interval == 0:
+    #         self.log_action_distribution_file(action_count, episode)
+    #     # if episode % log_interval == 0 and loss is not None:
+    #     #     self.log_loss_file(loss, episode)
+    #     if episode % log_interval == 0:
+    #         self.log_hardware_usage_file(episode)
+    #     if episode % log_interval == 0:
+    #         self.log_reward_components_file(reward_components, episode)  # Log reward components to file
 
-        # Log to TensorBoard every episode
-        self.log_to_tensorboard_every_episode(
-            episode, episode_reward, steps, lines_cleared, epsilon, loss, q_values, reward_components
-        )
-        self.log_action_distribution_tensorboard(action_count, episode)
-        self.log_hardware_usage_tensorboard(episode)
+    #     # Log to TensorBoard every episode
+    #     self.log_to_tensorboard_every_episode(
+    #         episode, episode_reward, episode_steps, total_lines_cleared, epsilon, q_values, reward_components
+    #     )
+    #     self.log_action_distribution_tensorboard(action_count, episode)
+    #     self.log_hardware_usage_tensorboard(episode)
 
     def close_logging(self):
         if self.writer:
