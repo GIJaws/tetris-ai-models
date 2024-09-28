@@ -79,3 +79,383 @@
     - Conduct a final code review of both packages, focusing on logger integration.
     - Run a full suite of tests to ensure everything works as expected.
     - Verify that logging outputs are correct and useful for both packages.
+
+Here is the updated TODO list with hyperlinks:
+
+### TODO List for Model Training Changes
+
+#### 1. Log more metrics per step instead of only per episode
+
+- Modify the `log_every_step` function in `LoggingManager` to include additional metrics such as:
+  - Q-values for each action
+  - Loss values (if available)
+  - Any other relevant metrics
+- Update the `train` function to call `log_every_step` after each step
+
+#### 2. Log action probabilities for each step
+
+- Modify the `select_action` function to return the action probabilities along with the selected action
+- Update the `log_every_step` function to include the action probabilities in the log
+- Integrate the action probabilities into the UI of the recorded video
+
+#### 3. Log whether the action was chosen by the model or random
+
+- Modify the `select_action` function to return a flag indicating whether the action was chosen by the model or random
+- Update the `log_every_step` function to include this flag in the log
+- Update the `log_every_episode` function to include the percentage of actions chosen by the model vs random
+
+#### 4. Refactor the `select_action` function to avoid bad actions during exploration
+
+- Define a list of "bad" actions that should be avoided during exploration (e.g. instant game over)
+- Modify the `select_action` function to:
+  - Check if the selected action is in the list of bad actions
+  - If so, select a new action that is not in the list of bad actions
+  - Introduce a small chance (e.g. 10%) that the model will still select a completely random action during exploration
+
+#### 5. Add penalty for trying to use `hold/swap` when not allowed
+
+- Modify the `calculate_rewards` function to include a penalty for attempting to use `hold/swap` when the hold queue is empty or the hold timer is not reset
+- Define a new reward component (e.g. `hold_swap_penalty`) and add it to the `calculate_rewards` function
+- Update the `train` function to include the `hold_swap_penalty` in the reward calculation
+
+#### 6. Log the number of pieces placed for each step
+
+- Modify the `calculate_board_statistics` function to include the number of pieces placed (`pieces_placed`)
+- Update the `log_every_step` function to include the `pieces_placed` metric in the log
+- Update the `train` function to increment the `pieces_placed` counter after each piece is placed
+
+#### 7. Log the reason for each piece placement
+
+- Modify the `log_every_step` function to include a new metric `piece_placement_reason` with possible values:
+  - `model`: the model chose to place the piece
+  - `random`: a random action caused the piece to be placed
+  - `gravity`: the model held on to the piece long enough for it to be dropped by gravity
+- Update the `train` function to determine the reason for each piece placement and log it accordingly
+
+#### 8. Log the decision maker for each action
+
+- Modify the `log_every_step` function to include a new metric `action_decision_maker` with possible values:
+  - `model`: the model chose the action
+  - `random`: the action was chosen randomly
+- Update the `train` function to determine the decision maker for each action and log it accordingly
+
+Here is some sample Python code to get you started:
+
+```python
+def log_every_step(self, episode: int, step: int, grad_norms: tuple[float, float], reward: float, pieces_placed: int, piece_placement_reason: str, action_decision_maker: str):
+    # ...
+    self.writer.add_scalar("Steps/PiecesPlaced", pieces_placed, episode + step)
+    self.writer.add_scalar("Steps/PiecePlacementReason", piece_placement_reason, episode + step)
+    self.writer.add_scalar("Steps/ActionDecisionMaker", action_decision_maker, episode + step)
+    # ...
+
+def train(self):
+    # ...
+    pieces_placed = 0
+    for episode in range(NUM_EPISODES):
+        # ...
+        for step in range(SEQUENCE_LENGTH):
+            # ...
+            action, action_probabilities, decision_maker = self.select_action(state, policy_net, steps_done, n_actions)
+            # ...
+            if action == ACTION_COMBINATIONS[6]:  # hold/swap
+                # ...
+                piece_placement_reason = "gravity"
+            elif decision_maker == "model":
+                piece_placement_reason = "model"
+            else:
+                piece_placement_reason = "random"
+            # ...
+            self.log_every_step(episode, step, grad_norms, reward, pieces_placed, piece_placement_reason, decision_maker)
+            # ...
+```
+
+You can find the relevant code files here:
+
+- [train_cnn_lstm_dqn.py](train_cnn_lstm_dqn.py)
+- [reward_functions.py](utils/reward_functions.py)
+- [LoggingManager](utils/my_logging.py)
+
+Note that this is just a starting point, and you will need to modify the code to fit your specific use case.
+
+---
+
+You're right to question the use of `kill`. The `kill` command can be confusing, as it's not just for terminating processes. Let me clarify and provide a more user-friendly approach:
+
+Instead of using `kill`, we can create a simple command-line interface to control the training process. This approach is more intuitive and safer. Here's how we can modify the code:
+
+```python
+import threading
+import cmd
+
+# ... (previous imports and setup) ...
+
+class TrainingController(cmd.Cmd):
+    prompt = 'training> '
+
+    def do_reload(self, arg):
+        """Reload the configuration"""
+        reload_config()
+        print("Configuration reloaded")
+
+    def do_pause(self, arg):
+        """Pause the training"""
+        global PAUSED
+        PAUSED = True
+        print("Training paused")
+
+    def do_resume(self, arg):
+        """Resume the training"""
+        global PAUSED
+        PAUSED = False
+        print("Training resumed")
+
+    def do_status(self, arg):
+        """Show current training status"""
+        print(f"Training is {'paused' if PAUSED else 'running'}")
+        print(f"Current configuration:")
+        for key, value in config.items():
+            print(f"  {key}: {value}")
+
+    def do_set(self, arg):
+        """Set a configuration value: set PARAM VALUE"""
+        try:
+            param, value = arg.split()
+            if param in config:
+                config[param] = type(config[param])(value)
+                print(f"Set {param} to {value}")
+                save_config()
+            else:
+                print(f"Unknown parameter: {param}")
+        except ValueError:
+            print("Usage: set PARAM VALUE")
+
+    def do_quit(self, arg):
+        """Quit the controller (training will continue)"""
+        return True
+
+def controller_thread():
+    TrainingController().cmdloop()
+
+# Start the controller in a separate thread
+threading.Thread(target=controller_thread, daemon=True).start()
+
+def train():
+    global PAUSED
+    # ... (existing setup code) ...
+
+    for episode in range(1, NUM_EPISODES + 1):
+        while PAUSED:
+            time.sleep(1)  # Sleep while paused
+
+        # ... (rest of the training function) ...
+
+if __name__ == "__main__":
+    train()
+```
+
+With this setup:
+
+1. The training script runs as usual, but now it also starts a command-line interface in a separate thread.
+
+2. You can interact with the training process using commands:
+
+   - `reload`: Reloads the configuration from the file
+   - `pause`: Pauses the training
+   - `resume`: Resumes the training
+   - `status`: Shows the current training status and configuration
+   - `set PARAM VALUE`: Changes a parameter value (e.g., `set EPS_DECAY 1000000`)
+   - `quit`: Exits the controller (training continues)
+
+3. The `training_config.json` file is still used to store the configuration, but now you can modify it through the command-line interface.
+
+This approach provides a more intuitive and safer way to control the training process. You can open a new terminal window, use `screen` or `tmux` to attach to the running process, and then interact with the training using these commands.
+
+This method eliminates the need for sending signals and provides a more user-friendly interface for controlling and monitoring your training process.
+
+---
+
+Certainly! You can modify the action selection method to allow the model to choose actions based on a probability distribution derived from its Q-values, rather than selecting completely random actions during exploration. This approach is often called "softmax" or "Boltzmann exploration". Here's how you could implement this:
+
+```python
+def select_action(state, policy_net, steps_done, n_actions, temperature=1.0):
+    sample = random.random()
+    eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1.0 * steps_done / EPS_DECAY)
+
+    with torch.no_grad():
+        q_values = policy_net(state)
+
+    if sample > eps_threshold:
+        # Greedy action
+        action = q_values.max(-1)[1].item()
+    else:
+        # Softmax exploration
+        probabilities = F.softmax(q_values / temperature, dim=-1)
+        action = torch.multinomial(probabilities, 1).item()
+
+    return action, eps_threshold, q_values
+
+```
+
+In this modified version:
+
+1. We still use the epsilon decay mechanism to decide between exploitation and exploration.
+2. For exploitation (greedy), we choose the action with the highest Q-value as before.
+3. For exploration, instead of choosing a completely random action, we:
+   - Apply a softmax function to the Q-values, which converts them into a probability distribution.
+   - Use these probabilities to sample an action using `torch.multinomial`.
+
+The `temperature` parameter controls the "randomness" of the exploration:
+
+- Higher temperature (e.g., 5.0) makes the action distribution more uniform.
+- Lower temperature (e.g., 0.1) makes it more likely to choose actions with higher Q-values.
+
+This approach allows the model to explore in a more informed way, biasing towards actions it thinks might be good, even during the exploration phase. You can adjust the temperature over time if you want to start with more random exploration and gradually become more focused.
+
+To use this in your training loop, you'd call it like this:
+
+```python
+action, eps_threshold, q_values = select_action(state_tensor, policy_net, total_steps_done, n_actions, temperature=1.0)
+```
+
+You can experiment with different temperature values to find what works best for your Tetris AI.
+
+---
+
+To refactor your code to use a partially trained model and adjust the epsilon decay rate mid-training, you should consider the following steps:
+
+1. Save additional training state:
+   Currently, you're only saving the model state. You should also save other important training parameters like the current episode, total steps done, and epsilon value.
+
+2. Create a function to load the saved state:
+   This function should load the model state, optimizer state, and other training parameters.
+
+3. Add command-line arguments:
+   Use argparse to allow specifying whether to start a new training session or continue from a checkpoint, and to set the new epsilon decay rate.
+
+4. Modify the train function:
+   Update it to either start fresh or load from a checkpoint based on the command-line argument.
+
+Here's a refactored version of your train function and some additional code to implement these changes:
+
+```python
+import argparse
+import json
+
+def save_checkpoint(episode, policy_net, optimizer, total_steps_done, eps_threshold, logger):
+    checkpoint = {
+        'episode': episode,
+        'model_state_dict': policy_net.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'total_steps_done': total_steps_done,
+        'eps_threshold': eps_threshold
+    }
+    torch.save(checkpoint, logger.get_checkpoint_path(episode))
+
+def load_checkpoint(checkpoint_path, policy_net, optimizer):
+    checkpoint = torch.load(checkpoint_path)
+    policy_net.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    return (
+        checkpoint['episode'],
+        checkpoint['total_steps_done'],
+        checkpoint['eps_threshold']
+    )
+
+def train(continue_training=False, checkpoint_path=None, new_eps_decay=None):
+    logger = LoggingManager(model_name="cnn_lstm_dqn")
+    render_mode = "rgb_array"
+    env = gym.make("SimpleTetris-v0", render_mode=render_mode, initial_level=INITIAL_LEVEL, num_lives=NUM_LIVES)
+
+    env = logger.setup_video_recording(env, video_every_n_episodes=100)
+
+    n_actions = len(ACTION_COMBINATIONS)
+
+    state, info = env.reset()
+    state = simplify_board(state)
+    input_shape = (state.shape[0], state.shape[1])
+
+    policy_net = CNNLSTMDQN(input_shape, n_actions, n_features=41).to(device)
+    target_net = CNNLSTMDQN(input_shape, n_actions, n_features=41).to(device)
+    optimizer = optim.Adam(policy_net.parameters(), lr=LEARNING_RATE, weight_decay=1e-5)
+
+    if continue_training and checkpoint_path:
+        start_episode, total_steps_done, eps_threshold = load_checkpoint(checkpoint_path, policy_net, optimizer)
+        target_net.load_state_dict(policy_net.state_dict())
+    else:
+        start_episode = 1
+        total_steps_done = 0
+        eps_threshold = EPS_START
+
+    target_net.eval()
+    memory = ReplayMemory(MEMORY_SIZE)
+
+    eps_decay = new_eps_decay if new_eps_decay is not None else EPS_DECAY
+
+    try:
+        for episode in range(start_episode, NUM_EPISODES + 1):
+            # ... (rest of your training loop)
+
+            # Update epsilon threshold
+            eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1.0 * total_steps_done / eps_decay)
+
+            # ... (rest of your training loop)
+
+            # Save checkpoint every 100 episodes
+            if episode % 100 == 0:
+                save_checkpoint(episode, policy_net, optimizer, total_steps_done, eps_threshold, logger)
+
+    except KeyboardInterrupt:
+        print("Training interrupted by user.")
+
+    finally:
+        # Save the final checkpoint
+        save_checkpoint(episode, policy_net, optimizer, total_steps_done, eps_threshold, logger)
+        env.close()
+        logger.close_logging()
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train or continue training the Tetris AI")
+    parser.add_argument('--continue_training', action='store_true', help='Continue training from a checkpoint')
+    parser.add_argument('--checkpoint_path', type=str, help='Path to the checkpoint file')
+    parser.add_argument('--new_eps_decay', type=float, help='New epsilon decay rate')
+    args = parser.parse_args()
+
+    train(continue_training=args.continue_training, checkpoint_path=args.checkpoint_path, new_eps_decay=args.new_eps_decay)
+```
+
+To use this refactored version:
+
+1. To start a new training session:
+
+   ```
+   python train_cnn_lstm_dqn.py
+   ```
+
+2. To continue training from a checkpoint:
+
+   ```
+   python train_cnn_lstm_dqn.py --continue_training --checkpoint_path path/to/checkpoint.pth
+   ```
+
+3. To continue training with a new epsilon decay rate:
+   ```
+   python train_cnn_lstm_dqn.py --continue_training --checkpoint_path path/to/checkpoint.pth --new_eps_decay 1000000
+   ```
+
+Remember to update your LoggingManager class to include a method for getting the checkpoint path:
+
+```python
+def get_checkpoint_path(self, episode: int | None = None) -> str:
+    if episode:
+        return f"{self.model_dir}/checkpoint_episode_{episode}.pth"
+    return f"{self.model_dir}/checkpoint_final.pth"
+```
+
+These changes allow you to stop and restart training, adjust the epsilon decay rate, and continue from where you left off.
+
+---
+
+Add the reward (or check if the placement means game over) that the agent will get if it places the current piece where the ghost piece as an input to the model
+
+if lose game super quickly add small extra penalty but no reward for staying alive longer

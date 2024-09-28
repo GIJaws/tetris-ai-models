@@ -14,23 +14,24 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
 from models.cnn_lstm_dqn import CNNLSTMDQN
-from gym_simpletetris.tetris.helpful_utils import simplify_board, ACTION_COMBINATIONS, iterate_nested_dict
+from gym_simpletetris.tetris.tetris_shapes import simplify_board, ACTION_COMBINATIONS
+from gym_simpletetris.tetris.helpful_utils import iterate_nested_dict
 from utils.my_logging import LoggingManager
 from utils.reward_functions import calculate_board_inputs
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Hyperparameters
-BATCH_SIZE = 512  # 256
+BATCH_SIZE = 2  # 1024
 GAMMA = 0.99
 EPS_START = 1.0
 EPS_END = 0.01
-EPS_DECAY = 833368  # 100000
-TARGET_UPDATE = 500
+EPS_DECAY = 100000
+TARGET_UPDATE = 2  # 500
 MEMORY_SIZE = 100000
-LEARNING_RATE = 1e-5
+LEARNING_RATE = 1e-4
 NUM_EPISODES = 50000
-SEQUENCE_LENGTH = 10
+SEQUENCE_LENGTH = 20
 HISTORY_LENGTH = 2
 
 # LOGGING PARAMS
@@ -42,6 +43,7 @@ NUM_LIVES = 0
 
 
 class ReplayMemory:
+    # TODO make this prioritise memories with actions that lead to a higher reward
     def __init__(self, capacity):
         self.memory = deque(maxlen=capacity)
 
@@ -55,11 +57,11 @@ class ReplayMemory:
         return len(self.memory)
 
 
-def optimize_model(memory, policy_net, target_net, optimizer):
+def optimize_model(memory, policy_net, target_net, optimizer) -> tuple[float, tuple[float, float]]:
     if len(memory) < BATCH_SIZE:
-        return None, (np.nan, np.nan)  # No loss to report
+        return np.nan, (np.nan, np.nan)  # No loss to report
 
-    transitions = memory.sample(BATCH_SIZE)
+    transitions = memory.sample(BATCH_SIZE)  # TODO is this correct?
     batch = list(zip(*transitions))
 
     state_features = batch[0]
@@ -100,7 +102,7 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     # Calculate gradient norm before clipping
     grad_norm_before = compute_gradient_norm(policy_net)
 
-    torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 1.5)
+    torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 5)
 
     # Calculate gradient norm after clipping
     grad_norm_after = compute_gradient_norm(policy_net)
@@ -109,8 +111,8 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     return loss.item(), (grad_norm_before, grad_norm_after)
 
 
-def compute_gradient_norm(model):
-    total_norm = 0
+def compute_gradient_norm(model) -> float:
+    total_norm: float = 0
     for p in model.parameters():
         if p.grad is not None:
             param_norm = p.grad.data.norm(2)
@@ -121,13 +123,15 @@ def compute_gradient_norm(model):
 def select_action(state, policy_net, steps_done, n_actions):
     sample = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1.0 * steps_done / EPS_DECAY)
-    if sample > eps_threshold:
-        with torch.no_grad():
-            q_values = policy_net(state)
-            action = q_values.max(-1)[1].item()
-        return action, eps_threshold, q_values
-    else:
-        return random.randrange(n_actions), eps_threshold, None
+    with torch.no_grad():
+        q_values = policy_net(state)
+        original_action: int = q_values.max(-1)[1].item()
+
+    is_random_action = sample < eps_threshold
+
+    action = original_action if is_random_action else random.randrange(n_actions)
+
+    return original_action, action, eps_threshold, q_values, is_random_action
 
 
 def train():
@@ -145,8 +149,8 @@ def train():
     state = simplify_board(state)
     input_shape = (state.shape[0], state.shape[1])
 
-    policy_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH, n_features=41).to(device)
-    target_net = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH, n_features=41).to(device)
+    policy_net = CNNLSTMDQN(input_shape, n_actions, n_features=41).to(device)
+    target_net = CNNLSTMDQN(input_shape, n_actions, n_features=41).to(device)
     target_net.load_state_dict(policy_net.state_dict())
     target_net.eval()
 
@@ -154,8 +158,8 @@ def train():
     memory = ReplayMemory(MEMORY_SIZE)
 
     # Metrics tracking
-    total_steps_done = 0
-    eps_threshold = EPS_START
+    total_steps_done: int = 0
+    eps_threshold: float = EPS_START
 
     try:
         for episode in range(1, NUM_EPISODES + 1):
@@ -166,7 +170,7 @@ def train():
             done = False
             total_reward: float = 0.0
             loss = None
-            q_values = []
+            episode_q_values = []
             episode_steps: int = 0
 
             current_episode_action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
@@ -185,13 +189,13 @@ def train():
 
                 combined_state = (state_tensor, features_tensor)
 
-                action, eps_threshold, step_q_values = select_action(
+                original_action, action, eps_threshold, step_q_values, is_random_action = select_action(
                     combined_state, policy_net, total_steps_done, n_actions
                 )
                 current_episode_action_count[action] += 1
 
                 if step_q_values is not None:
-                    q_values.append(step_q_values.cpu().numpy())
+                    episode_q_values.append(step_q_values.cpu().numpy())
 
                 next_state, reward, terminated, truncated, info = env.step(ACTION_COMBINATIONS[action])
                 done = terminated or truncated
@@ -232,7 +236,7 @@ def train():
 
                 total_steps_done += 1
 
-                logger.log_every_step(episode=episode, step=total_steps_done, grad_norms=grad_norms, reward=reward)
+                logger.log_every_step(total_steps=total_steps_done, grad_norms=grad_norms, reward=reward)
 
             # Log metrics to TensorBoard and files
             logger.log_every_episode(
@@ -242,7 +246,7 @@ def train():
                 lines_cleared=info.get("lines_cleared", 0),
                 epsilon=eps_threshold,
                 loss=loss,
-                q_values=q_values,
+                q_values=episode_q_values,
                 action_count=current_episode_action_count,
                 reward_components=episode_reward_components,
                 log_interval=LOG_EPISODE_INTERVAL,

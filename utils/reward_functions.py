@@ -109,12 +109,16 @@ def calculate_board_statistics(board, info):
     # "row_transitions": calculate_row_transitions(board),
 
 
-def calculate_board_inputs(board, info):
+def calculate_board_inputs(board, info):  # TODO move this function to somewhere more relevant
     """Calculate detailed statistics for a given board state. Used for model input."""
     heights = get_column_heights(board)
     actions: list[int] = get_all_actions(info)
 
-    padded_actions = actions[:20] + [-99] * (20 - len(actions))
+    num_actions = 20
+
+    padded_actions = actions[:num_actions] + [-99] * (
+        num_actions - len(actions)
+    )  # TODO make this the same as the SEQUENCE_LENGTH
 
     # Use -99 as a default value for both x and y anchors
     anchor = info.get("anchor", (-99, -99))
@@ -189,14 +193,20 @@ def calculate_rewards(
         raise ValueError("Invalid values in prev_stats")
 
     # Initialize the dictionary to ensure all keys are included
+    # TODO make this into a pydantic class
     result = {
         "game_over_penalty": 0,
         "lost_a_life": 0,
-        "scaled_penalties": {},
-        "scaled_rewards": {},
-        "total_rewards": 0.0,
-        "total_penalties": 0.0,
+        "scaled_rewards_dict": {},
+        "unscaled_rewards_dict": {},
+        "scaled_penalties_dict": {},
+        "unscaled_penalties_dict": {},
+        "total_scaled_rewards": 0.0,
+        "total_unscaled_rewards": 0.0,
+        "total_scaled_penalties": 0.0,
+        "total_unscaled_penalties": 0.0,
         "Total_Reward": 0.0,
+        "Total_unscaled_rewards+penalties": 0.0,
     }
 
     # If the game is in a new state, return only "new_game"
@@ -205,6 +215,7 @@ def calculate_rewards(
         return result
 
     # Determine if the player lost a life
+    # TODO make this more robust and check if logic is broken elsewhere
     lost_a_life = prev_stats.get("lives_left", 0) > current_stats.get("lives_left", 0) or prev_stats.get(
         "deaths", 0
     ) < current_stats.get("deaths", 0)
@@ -221,12 +232,12 @@ def calculate_rewards(
 
     # Start penalizing if gravity timer exceeds 30 when interval is 60
     gravity_interval = current_stats.get("gravity_interval", 1)
-    gravity_threshold = gravity_interval // 2
+    gravity_threshold = gravity_interval // 4
 
     grav_timer = current_stats.get("gravity_timer", 0)
 
     # Raw penalties and rewards
-    penalties = {
+    unscaled_penalties: dict[str, float] = {
         "height_penalty": current_stats.get("max_height", 0),
         "hole_penalty": current_stats.get("holes", 0),
         # "max_height_diff_penalty": min(prev_stats.get("max_height", 0) - current_stats.get("max_height", 0), 0),
@@ -234,12 +245,12 @@ def calculate_rewards(
         "gravity_timer": grav_timer * (grav_timer >= gravity_threshold),
     }
 
-    rewards = {
+    unscaled_rewards: dict[str, float] = {
         "lines_cleared_reward": 8.0 * lines_cleared,
     }
 
     # Penalty boundaries (min, max)  # Assuming board is 10*20
-    penalty_boundaries = {
+    penalty_boundaries: dict[str, tuple[float, float]] = {
         "height_penalty": (0, 20),
         "hole_penalty": (0, 200),
         # "max_height_diff_penalty": (-10.5, 0),
@@ -247,38 +258,43 @@ def calculate_rewards(
         "gravity_timer": (0, gravity_interval),
     }
 
-    reward_boundaries = {"lines_cleared_reward": (0, 32)}
+    reward_boundaries: dict[str, tuple[float, float]] = {"lines_cleared_reward": (0, 32)}
 
     # Scale and normalize penalties
-    scaled_penalties = {}
-    for penalty_name, raw_penalty in penalties.items():
+    scaled_penalties: dict[str, float] = {}
+    for penalty_name, raw_penalty in unscaled_penalties.items():
         min_val, max_val = penalty_boundaries[penalty_name]
-        normalized_penalty = (raw_penalty - min_val) / (max_val - min_val) if max_val != min_val else 0
-        scaled_penalties[penalty_name] = abs(normalized_penalty) * -(1 / 3)
+        normalized_penalty: float = (max_val != min_val) * ((raw_penalty - min_val) / (max_val - min_val))
+        scaled_penalties[penalty_name] = abs(normalized_penalty) * -(1 / len(unscaled_penalties))
 
+    scaled_penalties["height_penalty"] /= 2
+    scaled_penalties["hole_penalty"] *= 2
     # Scale and normalize rewards
-    scaled_rewards = {}
-    for reward_name, raw_reward in rewards.items():
+    scaled_rewards: dict[str, float] = {}
+    for reward_name, raw_reward in unscaled_rewards.items():
         min_val, max_val = reward_boundaries[reward_name]
-        normalized_reward = (raw_reward - min_val) / (max_val - min_val) if max_val != min_val else 0
-        scaled_rewards[reward_name] = abs(normalized_reward)
+        normalized_reward: float = (max_val != min_val) * ((raw_reward - min_val) / (max_val - min_val))
+        scaled_rewards[reward_name] = abs(normalized_reward) * (1 / len(unscaled_rewards))
 
     # Combine scaled rewards and penalties
-    total_rewards = sum(scaled_rewards.values())
-    total_penalties = sum(scaled_penalties.values())
-    total_unscaled_rewards = sum(rewards.values())
-    total_unscaled_penalties = sum(penalties.values())
+    total_scaled_rewards: float = sum(scaled_rewards.values())
+    total_scaled_penalties: float = sum(scaled_penalties.values())
+    total_unscaled_rewards: float = sum(unscaled_rewards.values())
+    total_unscaled_penalties: float = sum(unscaled_penalties.values())
 
     # Update the result with the scaled values
-    result["scaled_penalties"] = scaled_penalties
-    result["scaled_rewards"] = scaled_rewards
-    result["unscaled_rewards"] = rewards
-    result["unscaled_penalties"] = penalties
-    result["total_scaled_rewards"] = total_rewards
-    result["total_scaled_penalties"] = total_penalties
+    result["scaled_rewards_dict"] = scaled_rewards
+    result["unscaled_rewards_dict"] = unscaled_rewards
+    result["scaled_penalties_dict"] = scaled_penalties
+    result["unscaled_penalties_dict"] = unscaled_penalties
+
+    result["total_scaled_rewards"] = total_scaled_rewards
     result["total_unscaled_rewards"] = total_unscaled_rewards
+    result["total_scaled_penalties"] = total_scaled_penalties
     result["total_unscaled_penalties"] = total_unscaled_penalties
-    result["Total_Reward"] = total_rewards + total_penalties
+
+    result["Total_Reward"] = total_scaled_rewards + total_scaled_penalties
+    result["Total_unscaled_rewards+penalties"] = total_unscaled_rewards + total_unscaled_penalties
 
     return result
 

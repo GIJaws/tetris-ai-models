@@ -11,8 +11,12 @@ import gymnasium as gym
 from gymnasium.wrappers import RecordVideo
 import cv2
 from collections import deque
-from gym_simpletetris.tetris.helpful_utils import simplify_board, BASIC_ACTIONS, format_value, iterate_nested_dict
+from gym_simpletetris.tetris.helpful_utils import format_value, iterate_nested_dict
+from gym_simpletetris.tetris.tetris_shapes import simplify_board, BASIC_ACTIONS
 from utils.reward_functions import calculate_reward
+
+
+# TODO log metrics for n episodes instead of just the nth episode
 
 
 class ResizeVideoOutput(gym.Wrapper):
@@ -181,12 +185,12 @@ class LoggingManager:
         )
         return env
 
-    def log_every_step(self, episode: int, step: int, grad_norms: tuple[float, float], reward: float):
+    def log_every_step(self, total_steps: int, grad_norms: tuple[float, float], reward: float):
         # Log gradient norms
-        self.writer.add_scalar("Steps/GradientNormBeforeClipping", grad_norms[0], episode + step)
-        self.writer.add_scalar("Steps/GradientNormAfterClipping", grad_norms[1], episode + step)
+        self.writer.add_scalar("Steps/GradientNormBeforeClipping", grad_norms[0], total_steps)
+        self.writer.add_scalar("Steps/GradientNormAfterClipping", grad_norms[1], total_steps)
 
-        self.writer.add_scalar("Steps/Reward", reward, episode + step)
+        self.writer.add_scalar("Steps/Reward", reward, total_steps)
 
     def get_model_path(self, episode: int | None = None) -> str:
         if episode:
@@ -296,7 +300,7 @@ class LoggingManager:
         for action, count in action_count.items():
             frequency = count / total_actions
             action_str = BASIC_ACTIONS[action]
-            self.writer.add_scalar(f"Actions/{action_str}", frequency, episode)
+            self.writer.add_scalar(f"Actions/{action}: {action_str}", frequency, episode)
 
     def log_hardware_usage_tensorboard(self, episode: int):
         if self.writer is None:

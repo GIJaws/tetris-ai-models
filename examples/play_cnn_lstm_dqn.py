@@ -11,14 +11,16 @@ sys.path.insert(0, project_root)
 
 from models.cnn_lstm_dqn import CNNLSTMDQN
 from training.train_cnn_lstm_dqn import SEQUENCE_LENGTH
-from gym_simpletetris.tetris.helpful_utils import simplify_board, ACTION_COMBINATIONS
+from gym_simpletetris.tetris.tetris_shapes import simplify_board, ACTION_COMBINATIONS
+from utils.reward_functions import calculate_board_inputs
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
 
 
 def play():
     try:
-        env = gym.make("SimpleTetris-v0", render_mode="human")
+        env = gym.make("SimpleTetris-v0", render_mode="human", initial_level=1000, num_lives=1000000000)
+
     except gym.error.Error as e:
         print(f"Error initializing environment: {e}")
         return
@@ -28,8 +30,8 @@ def play():
     input_shape = (state.shape[0], state.shape[1])
     n_actions = len(ACTION_COMBINATIONS)
 
-    model = CNNLSTMDQN(input_shape, n_actions, SEQUENCE_LENGTH).to(device)
-    model_path = r"outputs\The Legends\cnn_lstm_dqn_20240923_010321\models\cnn_lstm_dqn_final.pth"
+    model = CNNLSTMDQN(input_shape, n_actions, 41).to(device)
+    model_path = r"outputs\cnn_lstm_dqn_20240925_205511\models\cnn_lstm_dqn_episode_8900.pth"
 
     if not os.path.exists(model_path):
         print(f"Model file {model_path} not found.")
@@ -47,13 +49,21 @@ def play():
         while not done:
             state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
 
-            with torch.no_grad():
-                q_values = model(state_tensor)
-                action = q_values[:, -1, :].max(-1)[1].item()
+            # Calculate additional features
+            board_features = calculate_board_inputs(state, info)
+            features_tensor = torch.tensor(
+                [list(board_features.values())],
+                dtype=torch.float32,
+                device=device,
+            )
 
-            action_combination = ACTION_COMBINATIONS[action]
-            next_state, reward, terminated, truncated, _ = env.step(action_combination)
-            total_reward += reward
+            combined_state = (state_tensor, features_tensor)
+
+            with torch.no_grad():
+                q_values = model(combined_state)
+                action = q_values.max(-1)[1].item()
+
+            next_state, reward, terminated, truncated, _ = env.step(ACTION_COMBINATIONS[action])
             done = terminated or truncated
 
             next_state = simplify_board(next_state)
@@ -62,8 +72,8 @@ def play():
 
     except KeyboardInterrupt:
         print("Interrupted by user.")
-    except Exception as e:
-        print(f"An error occurred during gameplay: {e}")
+    # except Exception as e:
+    #     print(f"An error occurred during gameplay: {e}")
     finally:
         print(f"Game Over. Total Reward: {total_reward}")
         env.close()

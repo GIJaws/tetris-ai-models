@@ -5,7 +5,7 @@ import numpy as np
 
 
 class CNNLSTMDQN(nn.Module):
-    def __init__(self, input_shape, n_actions, sequence_length, n_features=11):
+    def __init__(self, input_shape, n_actions, n_features=11):
         super(CNNLSTMDQN, self).__init__()
 
         # Existing CNN layers
