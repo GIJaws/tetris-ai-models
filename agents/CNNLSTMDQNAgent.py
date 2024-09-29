@@ -40,8 +40,9 @@ def select_action(
         policy_action: int = cast(int, q_values.max(-1)[1].item())
 
     is_random_action = sample < eps_threshold
-
-    selected_action: int = policy_action if is_random_action else random.randrange(n_actions)
+    # TODO make hard drop have a lower chance of being chosen
+    # TODO have random action come from game engine and do logic there for checking if the next move is a game over
+    selected_action: int = policy_action if not is_random_action else random.randrange(n_actions)
     return selected_action, policy_action, eps_threshold, q_values, is_random_action
 
 
@@ -55,21 +56,24 @@ def compute_gradient_norm(model) -> float:
 
 
 class CNNLSTMDQNAgent(TetrisAgent):
-    def __init__(self, state_simple, input_shape, action_space, config, device):
+    def __init__(self, state_simple, input_shape, action_space, config, device, model_path=None):
         self.device = device
         self.config = config
         self.n_actions = action_space.n
 
-        self.policy_net = CNNLSTMDQN(input_shape, self.n_actions, n_features=41).to(device)
-        self.target_net = CNNLSTMDQN(input_shape, self.n_actions, n_features=41).to(device)
-        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.policy_net = CNNLSTMDQN(input_shape, self.n_actions, n_features=23).to(device)
+        self.target_net = CNNLSTMDQN(input_shape, self.n_actions, n_features=23).to(device)
+        if model_path:
+            self.load_model(model_path)
+        else:
+            self.target_net.load_state_dict(self.policy_net.state_dict())
+            self.optimizer = optim.Adam(
+                self.policy_net.parameters(),
+                lr=float(self.config.LEARNING_RATE),
+                weight_decay=float(self.config.WEIGHT_DECAY),
+            )
         self.target_net.eval()
 
-        self.optimizer = optim.Adam(
-            self.policy_net.parameters(),
-            lr=float(self.config.LEARNING_RATE),
-            weight_decay=float(self.config.WEIGHT_DECAY),
-        )
         self.memory = ReplayMemory(self.config.MEMORY_SIZE)
 
         self.state_deque = deque([state_simple] * self.config.SEQUENCE_LENGTH, maxlen=self.config.SEQUENCE_LENGTH)
@@ -112,8 +116,35 @@ class CNNLSTMDQNAgent(TetrisAgent):
             done,
         )
 
+    def load_model(self, path: str):
+        checkpoint = torch.load(path, map_location=self.device)
+        self.policy_net.load_state_dict(checkpoint["policy_net"])
+        self.target_net.load_state_dict(checkpoint["target_net"])
+        if "optimizer" in checkpoint:
+            self.optimizer = optim.Adam(
+                self.policy_net.parameters(),
+                lr=float(self.config.LEARNING_RATE),
+                weight_decay=float(self.config.WEIGHT_DECAY),
+            )
+            self.optimizer.load_state_dict(checkpoint["optimizer"])
+        else:
+            self.optimizer = optim.Adam(
+                self.policy_net.parameters(),
+                lr=float(self.config.LEARNING_RATE),
+                weight_decay=float(self.config.WEIGHT_DECAY),
+            )
+        print(f"Model loaded from {path}")
+
     def save_model(self, path: str):
-        torch.save(self.policy_net.state_dict(), path)
+        torch.save(
+            {
+                "policy_net": self.policy_net.state_dict(),
+                "target_net": self.target_net.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+            },
+            path,
+        )
+        print(f"Model saved to {path}")
 
     def reset(self, state_simple):
         self.state_deque.clear()
@@ -165,7 +196,7 @@ class CNNLSTMDQNAgent(TetrisAgent):
         # Calculate gradient norm before clipping
         grad_norm_before = compute_gradient_norm(self.policy_net)
 
-        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 5)
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), self.config.GRADIENT_CLIPPING)
 
         # Calculate gradient norm after clipping
         grad_norm_after = compute_gradient_norm(self.policy_net)

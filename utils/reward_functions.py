@@ -106,7 +106,7 @@ def calculate_board_statistics(board, info):
     # "row_transitions": calculate_row_transitions(board),
 
 
-def calculate_board_inputs(board, info, num_actions=20):  # TODO move this function to somewhere more relevant
+def calculate_board_inputs(board, info, num_actions=2):  # TODO move this function to somewhere more relevant
     """Calculate detailed statistics for a given board state. Used for model input."""
     heights = get_column_heights(board)
     actions: list[int] = get_all_actions(info)
@@ -136,6 +136,7 @@ def calculate_board_inputs(board, info, num_actions=20):  # TODO move this funct
         "holes": count_holes(board),
         "bumpiness": np.sum(np.abs(np.diff(heights))),
         "lines_cleared": info.get("lines_cleared_per_step", 0),
+        # "score": info.get("score", 0),
         "x_anchor": anchor[0],
         "y_anchor": anchor[1],
         **{f"col_{i}_height": h for i, h in enumerate(heights)},
@@ -216,7 +217,7 @@ def calculate_rewards(
 
     # If the game is over, apply game over penalty and return
     if game_over:
-        result["game_over_penalty"] = -1
+        result["game_over_penalty"] = -10
         return result
 
     # If a life was lost, apply the life lost penalty and return

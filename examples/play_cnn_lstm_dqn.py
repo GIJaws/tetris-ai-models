@@ -10,7 +10,8 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
 from models.cnn_lstm_dqn import CNNLSTMDQN
-from training.train_cnn_lstm_dqn import SEQUENCE_LENGTH
+
+SEQUENCE_LENGTH = 20
 from gym_simpletetris.tetris.tetris_shapes import simplify_board, ACTION_COMBINATIONS
 from utils.reward_functions import calculate_board_inputs
 
@@ -31,7 +32,7 @@ def play():
     n_actions = len(ACTION_COMBINATIONS)
 
     model = CNNLSTMDQN(input_shape, n_actions, 41).to(device)
-    model_path = r"outputs\cnn_lstm_dqn_20240925_205511\models\cnn_lstm_dqn_episode_8900.pth"
+    model_path = r"outputs\cnn_lstm_dqn_20240928_220002\models\cnn_lstm_dqn_final.pth"
 
     if not os.path.exists(model_path):
         print(f"Model file {model_path} not found.")

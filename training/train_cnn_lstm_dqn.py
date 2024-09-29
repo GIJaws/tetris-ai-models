@@ -19,7 +19,7 @@ from agents.CNNLSTMDQNAgent import CNNLSTMDQNAgent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def train(config_path):
+def train(config_path, model_path=None):
     config = load_config(config_path)
     logger = LoggingManager(model_name=config.MODEL_NAME)
 
@@ -42,7 +42,7 @@ def train(config_path):
     state_simple = simplify_board(state)
     input_shape = (state_simple.shape[0], state_simple.shape[1])
 
-    agent = CNNLSTMDQNAgent(state_simple, input_shape, env.action_space, config, device)
+    agent = CNNLSTMDQNAgent(state_simple, input_shape, env.action_space, config, device, model_path=model_path)
 
     eps_threshold: float = config.EPS_START
     try:
@@ -122,4 +122,6 @@ def train(config_path):
 
 if __name__ == "__main__":
     config_path = r"tetris-ai-models\config\train_cnn_lstm_dqn.yaml"
+    model_path = r"outputs\cnn_lstm_dqn_20240929_000430\models\cnn_lstm_dqn_final.pth"
+
     train(config_path)
