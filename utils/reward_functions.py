@@ -352,3 +352,55 @@ def remove_floating_blocks(board):
     settled_board = board * connected_to_bottom
 
     return settled_board
+
+
+def extract_temporal_feature(info):
+    """
+    Extract temporal features from the game info.
+
+    :param info: Dictionary containing game state information
+    :return: Dict of temporal feature values
+    """
+    anchor = info.get("anchor", (-99, -99))  # Default to (-99, -99) if not available
+    x_anchor, y_anchor = anchor
+
+    current_piece = info.get("current_piece", -99)
+
+    held_piece = info.get("held_piece_name", None)
+    if held_piece:
+        held_piece = SHAPE_NAMES.index(held_piece)
+
+    # TODO make the number of next pieces configurable instead of fixed at 4
+    next_pieces = info.get("next_piece", [])[:4]  # Get up to 4 next pieces
+    next_pieces = [SHAPE_NAMES.index(piece) for piece in next_pieces]
+    next_pieces = next_pieces + [-99] * (4 - len(next_pieces))
+
+    return {
+        "x_anchor": x_anchor,
+        "y_anchor": y_anchor,
+        "current_piece": SHAPE_NAMES.index(current_piece),
+        **{f"next_piece_{i}": piece for i, piece in enumerate(next_pieces)},
+        "held_piece": held_piece or -99,
+        "action": info.get("action", -99),
+    }
+
+
+def extract_current_feature(board_simple, info):
+    """
+    Extract current features from the simplified board and game info.
+
+    :param board_simple: Simplified representation of the Tetris board
+    :param info: Dictionary containing game state information
+    :return: Dict of current feature values
+    """
+    heights = get_column_heights(board_simple)
+
+    # return [holes, bumpiness, score] + heights
+
+    return {
+        "holes": count_holes(board_simple),
+        "bumpiness": np.sum(np.abs(np.diff(heights))),
+        # "lines_cleared": info.get("lines_cleared_per_step", 0),
+        "score": info.get("score", 0),
+        **{f"col_{i}_height": h for i, h in enumerate(heights)},
+    }

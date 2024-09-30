@@ -1,3 +1,4 @@
+from math import e
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -92,18 +93,30 @@ class CNNGRU(nn.Module):
         :return: Q-values
         """
         boards, temporal_features, current_features = x
-        batch_size, seq_len, height, width = boards.size()
+        # boards shape should be [batch_size, sequence_length, height, width]
+        if boards.dim() == 3:
+            boards = boards.unsqueeze(0)
 
-        # Process boards through CNN
-        processed_boards = [self._process_cnn(boards[:, t]) for t in range(seq_len)]
-        processed_boards = torch.stack(processed_boards, dim=1)
+        if temporal_features.dim() == 2:
+            temporal_features = temporal_features.unsqueeze(0)
+
+        # Process all boards at once
+        processed_boards = self._process_cnn(boards)  # output shape: [20, 1, 13440]
+
+        # Ensure temporal_features has the correct shape
+        # temporal_features = temporal_features.squeeze(2)  # Shape should be [1, 20, 9]
+
+        # Reshape temporal_features to match the shape of processed_boards
+        # temporal_features = temporal_features.permute(1, 0, 2)  # Swap batch and sequence dimensions
 
         # Combine CNN output with temporal features
         gru_input = torch.cat([processed_boards, temporal_features], dim=2)
+        # output shape: [Sequence length=20, IDK=1, 13440+len(temporal_features)]
+        # TODO can we make this stack?
 
         # Process through GRU
-        gru_out, _ = self.gru(gru_input)
-        gru_out = gru_out[:, -1, :]  # Take the last output
+        gru_out_all, _ = self.gru(gru_input.float())
+        gru_out = gru_out_all[:, -1, :]  # Take the last output
 
         # Combine GRU output with current features
         combined = torch.cat([gru_out, current_features], dim=1)
@@ -116,19 +129,14 @@ class CNNGRU(nn.Module):
         return q_values
 
     def _process_cnn(self, x):
-        """
-        Process a single board state by passing it through the convolutional layers.
+        # x shape: [batch_size, sequence_length, height, width]
+        batch_size = x.size(0)
+        seq_len, height, width = x.size(1), x.size(2), x.size(3)
 
-        Parameters
-        ----------
-        x : torch.Tensor
-            The input board state, with shape (batch_size, height, width)
+        # Reshape to [batch_size * seq_len, 1, height, width]
+        x = x.view(-1, 1, height, width)
 
-        Returns
-        -------
-        processed_state : torch.Tensor
-            The output of the convolutional layers, with shape (batch_size, conv_out_size)
-        """
+        # Process through CNN layers
         x = self.conv1(x)
         x = self.bn1(x)
         x = F.leaky_relu(x)
@@ -144,7 +152,57 @@ class CNNGRU(nn.Module):
         x = F.leaky_relu(x)
         x = self.dropout3(x)
 
-        return x.view(x.size(0), -1)
+        # Flatten the spatial dimensions
+        x = x.view(x.size(0), -1)
+
+        # Restore batch and sequence dimensions
+        return x.view(batch_size, seq_len, -1)
+
+    # def _process_cnn(self, x):
+    #     """
+    #     Process a batch of board states by passing them through the convolutional layers.
+
+    #     Parameters
+    #     ----------
+    #     x : torch.Tensor
+    #         The input board states, with shape (batch_size, seq_len, channels, height, width)
+
+    #     Returns
+    #     -------
+    #     processed_state : torch.Tensor
+    #         The output of the convolutional layers, with shape (batch_size, seq_len, conv_out_size)
+    #     """
+    #     if len(x.size()) == 4:
+    #         batch_size, seq_len, height, width = x.size()
+    #         # Reshape to [batch_size * seq_len, 1, height, width]
+    #     elif len(x.size()) == 3:
+    #         seq_len, height, width = x.size()
+    #         batch_size = 1
+    #         # Reshape to [seq_len, 1, height, width]
+    #         x = x.view(-1, 1, height, width)
+    #     else:
+    #         raise ValueError(f"Invalid input shape: {x.shape}")
+
+    #     x = self.conv1(x)
+    #     x = self.bn1(x)
+    #     x = F.leaky_relu(x)
+    #     x = self.dropout1(x)
+
+    #     x = self.conv2(x)
+    #     x = self.bn2(x)
+    #     x = F.leaky_relu(x)
+    #     x = self.dropout2(x)
+
+    #     x = self.conv3(x)
+    #     x = self.bn3(x)
+    #     x = F.leaky_relu(x)
+    #     x = self.dropout3(x)
+
+    #     # Flatten the spatial dimensions
+    #     x = x.view(x.size(0), -1)
+
+    #     # Restore batch and sequence dimensions
+    #     return x.view(batch_size, seq_len, -1)
 
     def _get_conv_output(self):
         """

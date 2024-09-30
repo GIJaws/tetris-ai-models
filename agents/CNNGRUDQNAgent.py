@@ -10,16 +10,16 @@ from agents.base_agent import TetrisAgent
 
 class CGDAgent(TetrisAgent):
     # An tetris agent that uses CNNGRU with DQN to train
-    def __init__(self, board_state, action_space, config, device, model_path=None):
+    def __init__(
+        self, board_state, action_space, temporal_features, current_features, config, device, model_path=None
+    ):
         self.device = device
         self.config = config
         self.n_actions = action_space.n
         self.board_state = board_state  # keep a reference to the initial state
 
-        self.temporal_features = ["x_anchor", "y_anchor", "current_piece", "held_piece"] + [
-            f"next_piece_{i}" for i in range(4)
-        ]
-        self.current_features = ["holes", "bumpiness", "score"] + [f"col_{i}_height" for i in range(10)]
+        self.temporal_features = temporal_features
+        self.current_features = current_features
 
         input_shape = (self.board_state.shape[0], self.board_state.shape[1])
         self.policy_net = CNNGRU(input_shape, self.n_actions, self.temporal_features, self.current_features).to(device)
@@ -42,17 +42,25 @@ class CGDAgent(TetrisAgent):
         self.reset()
 
     def select_action(self, state, temporal_feature, current_feature, total_steps_done):
+        # Process board states
+        states_list = np.array(list(self.board_state_deque)[1:] + [state])
+        states_tensor = torch.tensor(states_list, dtype=torch.float32, device=self.device)
 
-        states_list = list(self.board_state_deque)[1:] + [state]
-        states_tensor = torch.tensor(np.array(states_list), dtype=torch.float32, device=self.device).unsqueeze(0)
+        # Add batch and channel dimensions to states_tensor
+        # states_tensor = states_tensor.unsqueeze(0)  # Shape: (1, seq_len, 1, 10, 21)
 
-        temporal_features_list = list(self.temporal_features_deque)[1:] + [temporal_feature]
-        temporal_feature_tensor = torch.tensor(
-            np.array(temporal_features_list), dtype=torch.float32, device=self.device
-        ).unsqueeze(0)
+        # Process temporal features
+        temporal_features_list = np.array(list(self.temporal_features_deque)[1:] + [temporal_feature])
+        temporal_feature_tensor = torch.tensor(temporal_features_list, dtype=torch.float32, device=self.device)
+
+        # Add batch dimension to temporal_feature_tensor
+        # temporal_feature_tensor = temporal_feature_tensor.unsqueeze(0)  # Shape: (1, seq_len, feature_dim)
+
+        # Process current feature
+        current_feature_tensor = torch.tensor(np.array([current_feature]), dtype=torch.float32, device=self.device)
 
         selected_action, policy_action, eps_threshold, q_values, is_random_action = self.select_action_static(
-            (states_tensor, temporal_feature_tensor, current_feature),
+            (states_tensor, temporal_feature_tensor, current_feature_tensor),
             self.policy_net,
             total_steps_done,
             self.n_actions,
@@ -62,15 +70,53 @@ class CGDAgent(TetrisAgent):
         )
         return selected_action, (policy_action, eps_threshold, q_values, is_random_action)
 
-    def update(self, state, action, next_state, reward, done):
-        next_boards, next_temporal_features, next_feature = next_state
+    # def select_action(self, state, temporal_feature, current_feature, total_steps_done):
+    #     current_state = np.array(state).reshape(1, 10, 21)
+    #     states_list = list(self.board_state_deque)[1:] + [current_state]
+    #     states_tensor = torch.tensor(np.array(states_list), dtype=torch.float32, device=self.device)
 
-        self.board_state_deque.append(next_boards[-1])  # assuming this is how to get the lasted board
-        self.temporal_features_deque.append(next_temporal_features[-1])
+    #     temporal_features_list = list(self.temporal_features_deque)[1:]
+    #     temporal_features_list.append([temporal_feature])
+    #     temporal_feature_tensor = torch.tensor(
+    #         np.array(temporal_features_list), dtype=torch.float32, device=self.device
+    #     )
+
+    #     current_feature_tensor = torch.tensor([current_feature], dtype=torch.float32, device=self.device)
+
+    #     selected_action, policy_action, eps_threshold, q_values, is_random_action = self.select_action_static(
+    #         (states_tensor, temporal_feature_tensor, current_feature_tensor),
+    #         self.policy_net,
+    #         total_steps_done,
+    #         self.n_actions,
+    #         self.config.EPS_START,
+    #         self.config.EPS_END,
+    #         self.config.EPS_DECAY,
+    #     )
+    #     return selected_action, (policy_action, eps_threshold, q_values, is_random_action)
+
+    def update(self, state, action, next_state, reward, done):
+
+        board, temporal_feature, feature = state
+        next_board, next_temporal_feature, next_feature = next_state
+
+        board_reshaped = np.array(board).reshape(10, 21)
+        next_board_reshaped = np.array(next_board).reshape(10, 21)
+
+        og_board_state_deque = np.array(list(self.board_state_deque))
+        og_temporal_features_deque = np.array(list(self.temporal_features_deque))
+
+        next_temporal_feature_reshaped = np.array(next_temporal_feature)
+
+        self.board_state_deque.append(next_board_reshaped)
+        self.temporal_features_deque.append(next_temporal_feature_reshaped)
+
+        next_board_deque = np.array(self.board_state_deque)
+        next_temporal_features = np.array(self.temporal_features_deque)
+
         self.memory.push(
-            state,
-            torch.tensor([[action]], device=self.device, dtype=torch.long),
-            next_state,
+            (og_board_state_deque, og_temporal_features_deque, feature),
+            torch.tensor([action], device=self.device, dtype=torch.long),
+            (next_board_deque, next_temporal_features, next_feature),
             reward,
             done,
         )
@@ -106,14 +152,18 @@ class CGDAgent(TetrisAgent):
         print(f"Model saved to {path}")
 
     def reset(self, state_simple=None):
+        if state_simple is not None:
+            self.board_state = np.array(state_simple).reshape(10, 21)
 
-        state_simple = state_simple or self.board_state
+        # Initialize with empty states
+        empty_state = np.zeros_like(self.board_state)
         self.board_state_deque.clear()
-        self.board_state_deque.extend([state_simple] * self.config.SEQUENCE_LENGTH)
+        self.board_state_deque.extend(np.array([empty_state] * self.config.SEQUENCE_LENGTH))
 
+        # Initialize temporal features
+        empty_temporal_features = np.zeros(len(self.temporal_features))
         self.temporal_features_deque.clear()
-        temp_temp_feats = list(range(len(self.temporal_features)))
-        self.temporal_features_deque.extend(temp_temp_feats * self.config.SEQUENCE_LENGTH)
+        self.temporal_features_deque.extend(np.array([empty_temporal_features] * self.config.SEQUENCE_LENGTH))
 
     def optimize_model(self) -> tuple[float, tuple[float, float]]:
         if len(self.memory) < self.config.BATCH_SIZE:
@@ -122,25 +172,65 @@ class CGDAgent(TetrisAgent):
         transitions = self.memory.sample(self.config.BATCH_SIZE)
         batch = list(zip(*transitions))
 
-        # The batches for the inputs states
-        states_batch = torch.cat(batch[0])
+        # Unpack the state tuples
+        state_boards, state_temporal_features, state_current_features = zip(*batch[0])
 
-        action_batch = torch.stack(batch[1])
+        # Unpack the next state tuples
+        next_state_boards, next_state_temporal_features, next_state_current_features = zip(*batch[2])
 
-        next_states_batch = torch.cat(batch[2])
+        # Convert to tensors
+        state_boards_batch = torch.stack([torch.from_numpy(item) for item in state_boards]).to(self.device)
 
+        state_temporal_features_batch = torch.stack([torch.from_numpy(item) for item in state_temporal_features]).to(
+            self.device
+        )
+
+        state_current_features_batch = torch.stack([torch.from_numpy(item) for item in state_current_features]).to(
+            self.device
+        )
+
+        next_state_boards_batch = torch.stack([torch.from_numpy(item) for item in next_state_boards]).to(self.device)
+
+        next_state_temporal_features_batch = torch.stack(
+            [torch.from_numpy(item) for item in next_state_temporal_features]
+        ).to(self.device)
+
+        next_state_current_features_batch = torch.stack(
+            [torch.from_numpy(item) for item in next_state_current_features]
+        ).to(self.device)
+
+        action_batch = torch.stack(batch[1]).to(self.device)
         reward_batch = torch.tensor(batch[3], dtype=torch.float32, device=self.device)
         done_batch = torch.tensor(batch[4], dtype=torch.bool, device=self.device)
 
         # Compute Q(s_t, a)
-        state_action_values = self.policy_net(states_batch).gather(1, action_batch)
+        state_action_values = self.policy_net(
+            (state_boards_batch, state_temporal_features_batch, state_current_features_batch)
+        ).gather(1, action_batch)
 
         # Compute V(s_{t+1})
         with torch.no_grad():
             next_state_values = torch.zeros(self.config.BATCH_SIZE, device=self.device)
             non_final_mask = ~done_batch
             if non_final_mask.sum() > 0:
-                next_state_values[non_final_mask] = self.target_net(next_states_batch[non_final_mask]).max(1)[0]
+
+                # Ensure non_final_mask is 1D
+                # if non_final_mask.dim() > 1:
+                # non_final_mask = non_final_mask.any(dim=(1, 2))  # Collapse along dimensions 1 and 2
+
+                # print(f"non_final_mask shape after collapsing: {non_final_mask.shape}")
+
+                # Apply the mask directly to next_state_boards_batch
+                non_final_next_states = next_state_boards_batch[non_final_mask]
+                # print(f"non_final_next_states shape: {non_final_next_states.shape}")
+
+                next_state_values[~done_batch] = self.target_net(
+                    (
+                        non_final_next_states,
+                        next_state_temporal_features_batch[non_final_mask],
+                        next_state_current_features_batch[non_final_mask],
+                    )
+                ).max(1)[0]
 
         # Compute the expected Q values
         expected_state_action_values = (next_state_values * self.config.GAMMA) + reward_batch

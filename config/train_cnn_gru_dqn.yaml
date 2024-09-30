@@ -1,7 +1,7 @@
 MODEL_NAME: cnn_gru_dqn
 
 # Hyperparameters
-BATCH_SIZE: 512
+BATCH_SIZE: 2 # 512
 GAMMA: 0.99
 EPS_START: 1
 EPS_END: 0.01
