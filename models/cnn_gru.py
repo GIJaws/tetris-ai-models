@@ -5,11 +5,11 @@ import numpy as np
 
 
 class CNNGRU(nn.Module):
-    def __init__(self, input_shape, n_actions, temporal_features, current_features):
+    def __init__(self, board_shape, n_actions: int, temporal_features: list[str], current_features: list[str]):
         super(CNNGRU, self).__init__()
 
         self.n_actions = n_actions
-        self.input_shape = input_shape
+        self.board_shape = board_shape
         self.temporal_features = temporal_features
         self.current_features = current_features
 
@@ -160,6 +160,6 @@ class CNNGRU(nn.Module):
             The output size of the convolutional layers
         """
         with torch.no_grad():
-            o = torch.zeros(1, 1, *self.input_shape)
+            o = torch.zeros(1, 1, *self.board_shape)
             o = self._process_cnn(o)
         return int(np.prod(o.size()))

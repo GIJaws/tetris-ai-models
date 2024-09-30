@@ -6,8 +6,8 @@ class ReplayMemory:
     def __init__(self, capacity):
         self.memory = deque(maxlen=capacity)
 
-    def push(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
+    def push(self, state, action, next_state, reward, done):
+        self.memory.append((state, action, next_state, reward, done))
 
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)
@@ -21,8 +21,8 @@ class ReplayPrioritisedMemory:
         self.memory = deque(maxlen=capacity)
         self.priorities = deque(maxlen=capacity)
 
-    def push(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
+    def push(self, state, action, next_state, reward, done):
+        self.memory.append((state, action, next_state, reward, done))
         self.priorities.append(reward + 100000)
 
     def sample(self, batch_size, alpha=0.6):
