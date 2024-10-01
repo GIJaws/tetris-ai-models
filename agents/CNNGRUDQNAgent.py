@@ -4,7 +4,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from collections import deque
 from models.cnn_gru import CNNGRU
-from utils.replay_memory import ReplayMemory
+from utils.replay_memory import ReplayPrioritisedMemory
 from agents.base_agent import TetrisAgent
 
 
@@ -35,7 +35,7 @@ class CGDAgent(TetrisAgent):
             )
         self.target_net.eval()
 
-        self.memory = ReplayMemory(self.config.MEMORY_SIZE)
+        self.memory = ReplayPrioritisedMemory(self.config.MEMORY_SIZE)
 
         self.board_state_deque = deque(maxlen=self.config.SEQUENCE_LENGTH)
         self.temporal_features_deque = deque(maxlen=self.config.SEQUENCE_LENGTH)
@@ -46,15 +46,9 @@ class CGDAgent(TetrisAgent):
         states_list = np.array(list(self.board_state_deque)[1:] + [state])
         states_tensor = torch.tensor(states_list, dtype=torch.float32, device=self.device)
 
-        # Add batch and channel dimensions to states_tensor
-        # states_tensor = states_tensor.unsqueeze(0)  # Shape: (1, seq_len, 1, 10, 21)
-
         # Process temporal features
         temporal_features_list = np.array(list(self.temporal_features_deque)[1:] + [temporal_feature])
         temporal_feature_tensor = torch.tensor(temporal_features_list, dtype=torch.float32, device=self.device)
-
-        # Add batch dimension to temporal_feature_tensor
-        # temporal_feature_tensor = temporal_feature_tensor.unsqueeze(0)  # Shape: (1, seq_len, feature_dim)
 
         # Process current feature
         current_feature_tensor = torch.tensor(np.array([current_feature]), dtype=torch.float32, device=self.device)
@@ -70,45 +64,18 @@ class CGDAgent(TetrisAgent):
         )
         return selected_action, (policy_action, eps_threshold, q_values, is_random_action)
 
-    # def select_action(self, state, temporal_feature, current_feature, total_steps_done):
-    #     current_state = np.array(state).reshape(1, 10, 21)
-    #     states_list = list(self.board_state_deque)[1:] + [current_state]
-    #     states_tensor = torch.tensor(np.array(states_list), dtype=torch.float32, device=self.device)
-
-    #     temporal_features_list = list(self.temporal_features_deque)[1:]
-    #     temporal_features_list.append([temporal_feature])
-    #     temporal_feature_tensor = torch.tensor(
-    #         np.array(temporal_features_list), dtype=torch.float32, device=self.device
-    #     )
-
-    #     current_feature_tensor = torch.tensor([current_feature], dtype=torch.float32, device=self.device)
-
-    #     selected_action, policy_action, eps_threshold, q_values, is_random_action = self.select_action_static(
-    #         (states_tensor, temporal_feature_tensor, current_feature_tensor),
-    #         self.policy_net,
-    #         total_steps_done,
-    #         self.n_actions,
-    #         self.config.EPS_START,
-    #         self.config.EPS_END,
-    #         self.config.EPS_DECAY,
-    #     )
-    #     return selected_action, (policy_action, eps_threshold, q_values, is_random_action)
-
     def update(self, state, action, next_state, reward, done):
 
-        board, temporal_feature, feature = state
+        _, _, feature = state
         next_board, next_temporal_feature, next_feature = next_state
-
-        board_reshaped = np.array(board).reshape(10, 21)
-        next_board_reshaped = np.array(next_board).reshape(10, 21)
 
         og_board_state_deque = np.array(list(self.board_state_deque))
         og_temporal_features_deque = np.array(list(self.temporal_features_deque))
 
-        next_temporal_feature_reshaped = np.array(next_temporal_feature)
+        next_temporal_feature = np.array(next_temporal_feature)
 
-        self.board_state_deque.append(next_board_reshaped)
-        self.temporal_features_deque.append(next_temporal_feature_reshaped)
+        self.board_state_deque.append(next_board)
+        self.temporal_features_deque.append(next_temporal_feature)
 
         next_board_deque = np.array(self.board_state_deque)
         next_temporal_features = np.array(self.temporal_features_deque)

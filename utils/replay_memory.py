@@ -23,7 +23,7 @@ class ReplayPrioritisedMemory:
 
     def push(self, state, action, next_state, reward, done):
         self.memory.append((state, action, next_state, reward, done))
-        self.priorities.append(reward + 100000)
+        self.priorities.append(reward * (reward > 0) + 1e-5)
 
     def sample(self, batch_size, alpha=0.6):
         sampled_indices = random.choices(

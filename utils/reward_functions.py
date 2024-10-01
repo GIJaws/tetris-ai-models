@@ -1,4 +1,5 @@
 from typing import cast
+from markdown.util import deprecated
 import numpy as np
 from scipy import ndimage
 from gym_simpletetris.tetris.tetris_shapes import SHAPE_NAMES
@@ -10,8 +11,6 @@ def calculate_reward(board_history, done, info) -> tuple[float, dict]:
 
     Args:
         board_history (deque): History of board states (each as 2D numpy arrays).
-        lines_cleared_history (deque): History of lines cleared per step.
-        game_over (bool): Flag indicating if the game has ended.
 
     Returns:
         float: Total reward.
@@ -101,11 +100,8 @@ def calculate_board_statistics(board, info):
         "anchor": info.get("anchor", (np.nan, np.nan)),
     }
 
-    # "well_depth": calculate_well_depth(board),
-    # "column_transitions": calculate_column_transitions(board),
-    # "row_transitions": calculate_row_transitions(board),
 
-
+@deprecated("")
 def calculate_board_inputs(board, info, num_actions=2):  # TODO move this function to somewhere more relevant
     """Calculate detailed statistics for a given board state. Used for model input."""
     heights = get_column_heights(board)
@@ -152,25 +148,7 @@ def calculate_rewards(
 ) -> dict[str, dict[str, int | float] | int | float]:
     """Calculate reward components based on current and previous statistics, with scaling.
 
-    Returns a dictionary with the following structure:
-
-    {
-        "game_over_penalty": 0,
-        "lost_a_life": 0,
-        "scaled_penalties": {
-            "height_penalty": float,
-            "hole_penalty": float,
-            "max_height_diff_penalty": float,
-            "hole_diff_penalty": float,
-            "piece_timer": float,
-        },
-        "scaled_rewards": {
-            "lines_cleared_reward": float,
-        },
-        "total_rewards": float,
-        "total_penalties": float,
-        "Total_Reward": float
-    }
+    TODO Returns a dictionary with the following structure: TODO
 
     The entries in the dictionary are:
 
@@ -204,6 +182,13 @@ def calculate_rewards(
         "total_unscaled_rewards+penalties": 0.0,
     }
 
+    # If the game is over, apply game over penalty and return immediately
+    if game_over:
+        result["game_over_penalty"] = -10.0
+        result["total_scaled_rewards+penalties"] = -10.0
+        result["total_unscaled_rewards+penalties"] = -10.0
+        return result
+
     # If the game is in a new state, return only "new_game"
     if not prev_stats:
         result["new_game"] = 0
@@ -214,11 +199,6 @@ def calculate_rewards(
     lost_a_life = prev_stats.get("lives_left", 0) > current_stats.get("lives_left", 0) or prev_stats.get(
         "deaths", 0
     ) < current_stats.get("deaths", 0)
-
-    # If the game is over, apply game over penalty and return
-    if game_over:
-        result["game_over_penalty"] = -10
-        return result
 
     # If a life was lost, apply the life lost penalty and return
     if lost_a_life:
@@ -240,7 +220,8 @@ def calculate_rewards(
     }
 
     unscaled_rewards: dict[str, float] = {
-        "lines_cleared_reward": 8.0 * lines_cleared,
+        "lines_cleared_per_step": 8.0 * lines_cleared,
+        "lines_cleared": 8.0 * lines_cleared,
     }
 
     # Penalty boundaries (min, max)  # Assuming board is 10*20
@@ -252,7 +233,10 @@ def calculate_rewards(
         "piece_timer": (0, piece_threshold * 2),
     }
 
-    reward_boundaries: dict[str, tuple[float, float]] = {"lines_cleared_reward": (0, 32)}
+    reward_boundaries: dict[str, tuple[float, float]] = {
+        "lines_cleared_per_step": (0, 32),
+        "lines_cleared": (0, 32),
+    }
 
     # Scale and normalize penalties
     scaled_penalties: dict[str, float] = {}
@@ -274,7 +258,7 @@ def calculate_rewards(
     total_scaled_rewards: float = sum(scaled_rewards.values())
     total_scaled_penalties: float = sum(scaled_penalties.values())
     total_unscaled_rewards: float = sum(unscaled_rewards.values())
-    total_unscaled_penalties: float = sum(unscaled_penalties.values())
+    total_unscaled_penalties: float = abs(sum(unscaled_penalties.values())) * -1
 
     # Update the result with the scaled values
     result["scaled_rewards_dict"] = scaled_rewards
@@ -296,16 +280,6 @@ def calculate_rewards(
 # Helper functions (implement these based on your specific needs)
 def calculate_well_depth(board):
     # Calculate the depth of wells (deep gaps between columns)
-    return 0  # TODO THIS IS A STUB
-
-
-def calculate_column_transitions(board):
-    # Calculate the number of transitions between filled and empty cells in columns
-    return 0  # TODO THIS IS A STUB
-
-
-def calculate_row_transitions(board):
-    # Calculate the number of transitions between filled and empty cells in rows
     return 0  # TODO THIS IS A STUB
 
 
@@ -400,7 +374,6 @@ def extract_current_feature(board_simple, info):
     return {
         "holes": count_holes(board_simple),
         "bumpiness": np.sum(np.abs(np.diff(heights))),
-        # "lines_cleared": info.get("lines_cleared_per_step", 0),
         "score": info.get("score", 0),
         **{f"col_{i}_height": h for i, h in enumerate(heights)},
     }
