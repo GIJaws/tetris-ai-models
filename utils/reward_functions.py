@@ -195,10 +195,13 @@ def calculate_rewards(
 
     piece_timer = current_stats.get("piece_timer", 0)
 
+    max_height = current_stats.get("max_height", 0)
+
+    num_holes = current_stats.get("holes", 0)
     # Raw penalties and rewards
     unscaled_penalties: dict[str, float] = {
-        "height_penalty": current_stats.get("max_height", 0),
-        "hole_penalty": current_stats.get("holes", 0),
+        "height_penalty": max_height * (max_height >= 18),
+        "hole_penalty": min(200, num_holes * (num_holes >= 15) + num_holes),
         "piece_timer": piece_timer * (piece_timer >= piece_threshold),
     }
 
@@ -223,10 +226,11 @@ def calculate_rewards(
     for penalty_name, raw_penalty in unscaled_penalties.items():
         min_val, max_val = penalty_boundaries[penalty_name]
         normalized_penalty: float = (max_val != min_val) * ((raw_penalty - min_val) / (max_val - min_val))
-        scaled_penalties[penalty_name] = abs(normalized_penalty) * -(1 / len(unscaled_penalties))
+        # scaled_penalties[penalty_name] = abs(normalized_penalty) * -(1 / len(unscaled_penalties))
+        scaled_penalties[penalty_name] = abs(normalized_penalty) * -1  # not normalising between penatlies
 
-    scaled_penalties["height_penalty"] /= 3
-    scaled_penalties["hole_penalty"] *= 3
+    # scaled_penalties["height_penalty"] /= 3
+    # scaled_penalties["hole_penalty"] *= 3
 
     # Scale and normalize rewards
     scaled_rewards: dict[str, float] = {}
@@ -335,13 +339,14 @@ def extract_temporal_feature(info):
         held_piece = SHAPE_NAMES.index(held_piece)
 
     # TODO make the number of next pieces configurable instead of fixed at 4
-    next_pieces = info.get("next_piece", [])[:4]  # Get up to 4 next pieces
+    num_next_pieces = 1
+    next_pieces = info.get("next_piece", [])[:num_next_pieces]  # Get up to num_next_pieces next pieces
     next_pieces = [SHAPE_NAMES.index(piece) for piece in next_pieces]
-    next_pieces = next_pieces + [-99] * (4 - len(next_pieces))
+    next_pieces = next_pieces + [-99] * (num_next_pieces - len(next_pieces))
 
     return {
-        "x_anchor": x_anchor,
-        "y_anchor": y_anchor,
+        # "x_anchor": x_anchor,
+        # "y_anchor": y_anchor,
         "current_piece": SHAPE_NAMES.index(current_piece),
         **{f"next_piece_{i}": piece for i, piece in enumerate(next_pieces)},
         "held_piece": held_piece or -99,
@@ -359,11 +364,11 @@ def extract_current_feature(board_simple, info):
     """
     heights = get_column_heights(board_simple)
 
-    # return [holes, bumpiness, score] + heights
-
     return {
         "holes": count_holes(board_simple),
         "bumpiness": np.sum(np.abs(np.diff(heights))),
         "score": info.get("score", 0),
-        **{f"col_{i}_height": h for i, h in enumerate(heights)},
+        "agg_height": np.sum(heights),
+        "piece_timer": info.get("piece_timer", 0),
+        # **{f"col_{i}_height": h for i, h in enumerate(heights)},
     }
