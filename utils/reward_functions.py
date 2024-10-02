@@ -16,25 +16,26 @@ def calculate_reward(board_history, done, info) -> tuple[float, dict]:
         float: Total reward.
         dict: Dictionary of detailed statistics and reward components.
     """
-    current_board = board_history[-1]
-    settled_board = remove_floating_blocks(current_board)
+    settled_board = info["settled_board"]
 
     # Calculate current board statistics
     current_stats = calculate_board_statistics(settled_board, info)
 
     # Calculate previous board statistics (if available)
-    # TODO implement penalty if spamming the same action
+    # TODO implement penalty if spamming the same action or bad finness
     if len(board_history) > 1:
-        prev_board = remove_floating_blocks(board_history[-2])
-        prev_stats = calculate_board_statistics(prev_board, info.get("prev_info", {}))
+        prev_stats = calculate_board_statistics(info["prev_info"]["settled_board"], info["prev_info"])
     else:
         prev_stats = {
             "lives_left": 0,
             "deaths": 1,
+            "hold_used": False,
         }
 
+    held_penalty = info["hold_used"] and prev_stats["hold_used"]
+
     # Calculate rewards
-    rewards = calculate_rewards(current_stats, prev_stats, info["lines_cleared_per_step"], done)
+    rewards = calculate_rewards(current_stats, prev_stats, info["lines_cleared_per_step"], done, held_penalty, info)
 
     # Combine statistics and rewards
     extra_info = {
@@ -90,7 +91,6 @@ def calculate_board_statistics(board, info):
         "avg_height": np.mean(heights),
         "min_height": np.min(heights),
         "heights": heights.tolist(),
-        "holes": count_holes(board),
         "bumpiness": np.sum(np.abs(np.diff(heights))),
         "density": np.sum(board) / (board.shape[0] * board.shape[1]),
         "max_height_density": np.sum(board) / max(1, (board.shape[0] * np.max(heights))),
@@ -101,6 +101,10 @@ def calculate_board_statistics(board, info):
         "piece_timer": info.get("piece_timer", 0),
         "gravity_interval": info.get("gravity_interval", 60),
         "anchor": info.get("anchor", (np.nan, np.nan)),
+        "statistics": info["statistics"],
+        "hold_used": info["hold_used"],
+        "current_piece_coords": info["current_piece_coords"],
+        "ghost_piece_coords": info["ghost_piece_coords"],
     }
 
 
@@ -147,7 +151,7 @@ def calculate_board_inputs(board, info, num_actions=2):  # TODO move this functi
 
 
 def calculate_rewards(
-    current_stats, prev_stats, lines_cleared, game_over
+    current_stats, prev_stats, lines_cleared, game_over, held_penalty: bool, info
 ) -> dict[str, dict[str, int | float] | int | float]:
     """Calculate reward components based on current and previous statistics, with scaling.
 
@@ -193,16 +197,15 @@ def calculate_rewards(
 
     piece_threshold = 20
 
-    piece_timer = current_stats.get("piece_timer", 0)
-
     max_height = current_stats.get("max_height", 0)
 
-    num_holes = current_stats.get("holes", 0)
     # Raw penalties and rewards
     unscaled_penalties: dict[str, float] = {
         "height_penalty": max_height * (max_height >= 18),
-        "hole_penalty": min(200, num_holes * (num_holes >= 15) + num_holes),
-        "piece_timer": piece_timer * (piece_timer >= piece_threshold),
+        "hole_penalty": info["holes"],
+        "piece_timer": info["piece_timer"] * (info["piece_timer"] >= piece_threshold),
+        "held_penalty": held_penalty,
+        "hole_increase": info["holes"] > info["old_holes"],
     }
 
     unscaled_rewards: dict[str, float] = {
@@ -214,6 +217,8 @@ def calculate_rewards(
         "height_penalty": (0, 20),
         "hole_penalty": (0, 200),
         "piece_timer": (0, piece_threshold * 10),
+        "held_penalty": (0, 4),  # actually (0, 1) but this makes it 0.25 instead of 1 when true
+        "hole_increase": (0, 4),  # ^^^
     }
 
     reward_boundaries: dict[str, tuple[float, float]] = {
@@ -348,6 +353,8 @@ def extract_temporal_feature(info):
         # "x_anchor": x_anchor,
         # "y_anchor": y_anchor,
         "current_piece": SHAPE_NAMES.index(current_piece),
+        **{f"cur_piece_x_coords_{i}": x for i, (x, y) in enumerate(info["current_piece_coords"])},
+        **{f"cur_piece_y_coords_{i}": y for i, (x, y) in enumerate(info["current_piece_coords"])},
         **{f"next_piece_{i}": piece for i, piece in enumerate(next_pieces)},
         "held_piece": held_piece or -99,
         "action": info.get("action", -99),
@@ -365,10 +372,13 @@ def extract_current_feature(board_simple, info):
     heights = get_column_heights(board_simple)
 
     return {
-        "holes": count_holes(board_simple),
-        "bumpiness": np.sum(np.abs(np.diff(heights))),
+        # "holes": count_holes(board_simple),
+        # "bumpiness": np.sum(np.abs(np.diff(heights))),
         "score": info.get("score", 0),
-        "agg_height": np.sum(heights),
-        "piece_timer": info.get("piece_timer", 0),
+        "hold_used": info["hold_used"],
+        # "agg_height": np.sum(heights),
+        **{f"ghost_piece_x_coords_{i}": x for i, (x, y) in enumerate(info["ghost_piece_coords"])},
+        **{f"ghost_piece_y_coords_{i}": y for i, (x, y) in enumerate(info["ghost_piece_coords"])},
+        # "piece_timer": info.get("piece_timer", 0),
         # **{f"col_{i}_height": h for i, h in enumerate(heights)},
     }

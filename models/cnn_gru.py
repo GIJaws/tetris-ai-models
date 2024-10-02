@@ -53,7 +53,7 @@ class CNNGRU(nn.Module):
         """
         self.gru_input_size = self.conv_out_size + len(self.temporal_features)
 
-        self.gru = nn.GRU(input_size=self.gru_input_size, hidden_size=128, num_layers=4, batch_first=True, dropout=0.2)
+        self.gru = nn.GRU(input_size=self.gru_input_size, hidden_size=512, num_layers=2, batch_first=True, dropout=0.2)
         self.gru_out_size = self.gru.hidden_size
 
     def _init_fc_layers(self):
@@ -73,7 +73,7 @@ class CNNGRU(nn.Module):
         self.fc1 = nn.Linear(fc_input_size, 256)
 
         self.fc2 = nn.Linear(self.fc1.out_features, self.n_actions)
-        self.dropout = nn.Dropout(p=0.1)
+        self.dropout = nn.Dropout(p=0.0)
 
     def forward(self, x):
         """
