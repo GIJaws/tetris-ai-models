@@ -28,7 +28,10 @@ def calculate_reward(board_history, done, info) -> tuple[float, dict]:
         prev_board = remove_floating_blocks(board_history[-2])
         prev_stats = calculate_board_statistics(prev_board, info.get("prev_info", {}))
     else:
-        prev_stats = {}
+        prev_stats = {
+            "lives_left": 0,
+            "deaths": 1,
+        }
 
     # Calculate rewards
     rewards = calculate_rewards(current_stats, prev_stats, info["lines_cleared_per_step"], done)
@@ -82,7 +85,7 @@ def calculate_board_statistics(board, info):
     heights = get_column_heights(board)
 
     return {
-        "time": info.get("time", np.nan),
+        "time": info.get("time", 0),
         "max_height": np.max(heights),
         "avg_height": np.mean(heights),
         "min_height": np.min(heights),
@@ -91,9 +94,9 @@ def calculate_board_statistics(board, info):
         "bumpiness": np.sum(np.abs(np.diff(heights))),
         "density": np.sum(board) / (board.shape[0] * board.shape[1]),
         "max_height_density": np.sum(board) / max(1, (board.shape[0] * np.max(heights))),
-        "lives_left": info.get("lives_left", np.nan),
-        "deaths": info.get("deaths", np.nan),
-        "level": info.get("level", np.nan),
+        "lives_left": info.get("lives_left", -1),
+        "deaths": info.get("deaths", 1),
+        "level": info.get("level", 1),
         "gravity_timer": info.get("gravity_timer", 0),
         "piece_timer": info.get("piece_timer", 0),
         "gravity_interval": info.get("gravity_interval", 60),
@@ -168,8 +171,6 @@ def calculate_rewards(
     # Initialize the dictionary to ensure all keys are included
     # TODO make this into a pydantic class
     result = {
-        "game_over_penalty": 0.0,
-        "lost_a_life": 0.0,
         "scaled_rewards_dict": {},
         "unscaled_rewards_dict": {},
         "scaled_penalties_dict": {},
@@ -182,31 +183,15 @@ def calculate_rewards(
         "total_unscaled_rewards+penalties": 0.0,
     }
 
-    # If the game is over, apply game over penalty and return immediately
-    if game_over:
-        result["game_over_penalty"] = -10.0
-        result["total_scaled_rewards+penalties"] = -10.0
-        result["total_unscaled_rewards+penalties"] = -10.0
-        return result
-
-    # If the game is in a new state, return only "new_game"
-    if not prev_stats:
-        result["new_game"] = 0
-        return result
-
     # Determine if the player lost a life
     # TODO make this more robust and check if logic is broken elsewhere
-    lost_a_life = prev_stats.get("lives_left", 0) > current_stats.get("lives_left", 0) or prev_stats.get(
-        "deaths", 0
-    ) < current_stats.get("deaths", 0)
+    lost_a_life = (
+        prev_stats.get("lives_left", 0) > current_stats.get("lives_left", 0)
+        or prev_stats.get("deaths", 0) < current_stats.get("deaths", 0)
+        or current_stats.get("deaths", 0) > 0
+    )
 
-    # If a life was lost, apply the life lost penalty and return
-    if lost_a_life:
-        result["lost_a_life"] = -0.9
-        return result
-
-    # Start penalizing if gravity timer exceeds 30 when interval is 60
-    piece_threshold = 10
+    piece_threshold = 20
 
     piece_timer = current_stats.get("piece_timer", 0)
 
@@ -214,28 +199,23 @@ def calculate_rewards(
     unscaled_penalties: dict[str, float] = {
         "height_penalty": current_stats.get("max_height", 0),
         "hole_penalty": current_stats.get("holes", 0),
-        # "max_height_diff_penalty": min(prev_stats.get("max_height", 0) - current_stats.get("max_height", 0), 0),
-        # "hole_diff_penalty": min(prev_stats.get("holes", 0) - current_stats.get("holes", 0), 0),
         "piece_timer": piece_timer * (piece_timer >= piece_threshold),
     }
 
     unscaled_rewards: dict[str, float] = {
         "lines_cleared_per_step": 8.0 * lines_cleared,
-        "lines_cleared": 8.0 * lines_cleared,
     }
 
     # Penalty boundaries (min, max)  # Assuming board is 10*20
     penalty_boundaries: dict[str, tuple[float, float]] = {
         "height_penalty": (0, 20),
         "hole_penalty": (0, 200),
-        # "max_height_diff_penalty": (-10.5, 0),
-        # "hole_diff_penalty": (-200, 0),
-        "piece_timer": (0, piece_threshold * 2),
+        "piece_timer": (0, piece_threshold * 10),
     }
 
     reward_boundaries: dict[str, tuple[float, float]] = {
         "lines_cleared_per_step": (0, 32),
-        "lines_cleared": (0, 32),
+        # "lines_cleared": (0, 32),
     }
 
     # Scale and normalize penalties
@@ -245,14 +225,24 @@ def calculate_rewards(
         normalized_penalty: float = (max_val != min_val) * ((raw_penalty - min_val) / (max_val - min_val))
         scaled_penalties[penalty_name] = abs(normalized_penalty) * -(1 / len(unscaled_penalties))
 
-    scaled_penalties["height_penalty"] /= 2
-    scaled_penalties["hole_penalty"] *= 2
+    scaled_penalties["height_penalty"] /= 3
+    scaled_penalties["hole_penalty"] *= 3
+
     # Scale and normalize rewards
     scaled_rewards: dict[str, float] = {}
     for reward_name, raw_reward in unscaled_rewards.items():
         min_val, max_val = reward_boundaries[reward_name]
         normalized_reward: float = (max_val != min_val) * ((raw_reward - min_val) / (max_val - min_val))
         scaled_rewards[reward_name] = abs(normalized_reward) * (1 / len(unscaled_rewards))
+
+    # If the game is over, apply game over penalty
+    if game_over:
+        scaled_penalties["game_over_penalty"] = -10
+        unscaled_penalties["game_over_penalty"] = -10
+
+    if lost_a_life:
+        scaled_penalties["lost_a_life"] = -0.9
+        unscaled_penalties["lost_a_life"] = -0.9
 
     # Combine scaled rewards and penalties
     total_scaled_rewards: float = sum(scaled_rewards.values())

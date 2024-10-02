@@ -16,6 +16,7 @@ from utils.my_logging import LoggingManager
 from utils.config import load_config
 from agents.CNNGRUDQNAgent import CGDAgent
 from utils.reward_functions import extract_temporal_feature, extract_current_feature
+from utils.reward_functions import calculate_reward
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -39,13 +40,6 @@ def train(config_path, model_path=None):
         ),
     )
 
-    # temporal_features_names = ["x_anchor", "y_anchor", "current_piece", "held_piece"] + [
-    #     f"next_piece_{i}" for i in range(4)
-    # ]
-
-    # current_features_names = ["holes", "bumpiness", "score"] + [f"col_{i}_height" for i in range(10)]
-
-    # Initialize networks
     board, next_info = env.reset()
     board_simple = simplify_board(board)
 
@@ -77,7 +71,7 @@ def train(config_path, model_path=None):
             current_episode_action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
 
             agent.reset()
-
+            board_history = [board_simple]
             while not done:
                 info = next_info
                 board_simple = next_board_simple
@@ -99,12 +93,16 @@ def train(config_path, model_path=None):
                 next_board, step_reward, terminated, truncated, next_info = env.step(
                     ACTION_COMBINATIONS[selected_action]
                 )
-
-                next_board_simple = simplify_board(next_board)
-                next_temporal_feature = extract_temporal_feature(next_info)
-                next_feature = extract_current_feature(board_simple, next_info)
-
                 done = terminated or truncated
+                next_board_simple = simplify_board(next_board)
+                board_history.append(next_board_simple)
+
+                step_reward, extra_info = calculate_reward(board_history, done, next_info)
+                next_info["extra_info"] = extra_info
+
+                next_temporal_feature = extract_temporal_feature(next_info)
+                next_feature = extract_current_feature(next_board_simple, next_info)
+
                 episode_cumulative_reward += step_reward
 
                 agent.update(
@@ -120,9 +118,6 @@ def train(config_path, model_path=None):
                 )
                 loss, grad_norms = agent.optimize_model()
 
-                cur_episode_steps += 1
-                board_simple = next_board_simple
-
                 logger.log_every_step(
                     total_steps=env.total_steps,
                     grad_norms=grad_norms,
@@ -130,6 +125,7 @@ def train(config_path, model_path=None):
                     eps_threshold=eps_threshold,
                     info=next_info,
                 )
+                cur_episode_steps += 1
 
             logger.log_to_tensorboard_every_episode(
                 episode,
@@ -146,7 +142,7 @@ def train(config_path, model_path=None):
                 agent.update_target_network()
 
             # Save the trained model every SAVE_MODEL_INTERVAL
-            if episode % 100 == 0:
+            if episode % config.SAVE_MODEL_INTERVAL == 0:
                 agent.save_model(logger.get_model_path(episode))
     except KeyboardInterrupt:
         print("Training interrupted by user.")

@@ -459,3 +459,211 @@ These changes allow you to stop and restart training, adjust the epsilon decay r
 Add the reward (or check if the placement means game over) that the agent will get if it places the current piece where the ghost piece as an input to the model
 
 if lose game super quickly add small extra penalty but no reward for staying alive longer
+
+---
+
+TODO add n-step buffer
+Certainly. Multi-step returns, also known as n-step returns, are a method to balance between immediate rewards and long-term value estimates. Here's a detailed explanation:
+
+1. Single-step (current approach):
+   In your current implementation, you're using single-step returns. The target for Q-learning is calculated as:
+
+   ```
+   Q(s,a) = r + γ * max(Q(s', a'))
+   ```
+
+   Where `r` is the immediate reward, and `γ * max(Q(s', a'))` is the discounted estimate of future rewards.
+
+2. Multi-step returns:
+   With n-step returns, you look ahead n steps and use the actual rewards from those steps plus the estimated value from the nth step. The formula becomes:
+   ```
+   Q(s,a) = r₁ + γr₂ + γ²r₃ + ... + γⁿ⁻¹rₙ + γⁿ * max(Q(s_n, a'))
+   ```
+   Where r₁, r₂, ..., rₙ are the actual rewards received in the next n steps.
+
+Benefits of multi-step returns:
+
+1. Faster reward propagation: In environments where rewards are sparse or delayed (like Tetris), multi-step returns can help propagate reward information faster through the value function.
+
+2. Reduced bias: By using actual rewards for several steps, you reduce the bias introduced by the initial value function estimates.
+
+3. Potentially faster learning: Especially in environments with clear episode structures or where actions have long-term consequences.
+
+Implementation in your Tetris environment:
+
+1. Store sequences: Instead of storing single transitions, store sequences of n transitions in your replay buffer.
+
+2. Modify update function: When updating, calculate the n-step return using the stored sequence.
+
+3. Adjust for terminal states: If a sequence includes a terminal state, you'll need to adjust the calculation accordingly.
+
+Example pseudo-code for 3-step returns:
+
+```python
+def calculate_3step_return(transitions):
+    r1, s1, a1 = transitions[0]
+    r2, s2, a2 = transitions[1]
+    r3, s3, _ = transitions[2]
+
+    return r1 + GAMMA * r2 + GAMMA**2 * r3 + GAMMA**3 * max(Q(s3, a))
+
+# In your update function
+n_step_return = calculate_3step_return(sequence_from_replay_buffer)
+loss = (n_step_return - Q(s, a))**2
+```
+
+Implementing n-step returns can potentially improve your agent's performance, especially in Tetris where the consequences of actions often span multiple steps. However, it also increases complexity and computational requirements, so you'd need to balance these factors.
+
+Certainly. I'll refactor the `CNNGRUDQNAgent.py` to implement n-step returns. Here's a modified version of your agent class:
+
+```python
+import numpy as np
+import torch
+import torch.optim as optim
+import torch.nn.functional as F
+from collections import deque
+from models.cnn_gru import CNNGRU
+from utils.replay_memory import ReplayPrioritisedMemory
+from agents.base_agent import TetrisAgent
+
+class CGDAgent(TetrisAgent):
+    def __init__(self, board_state, action_space, temporal_features, current_features, config, device, model_path=None):
+        self.device = device
+        self.config = config
+        self.n_actions = action_space.n
+        self.board_state = board_state
+        self.temporal_features = temporal_features
+        self.current_features = current_features
+        self.n_step = config.N_STEP  # New: n-step parameter
+
+        input_shape = (self.board_state.shape[0], self.board_state.shape[1])
+        self.policy_net = CNNGRU(input_shape, self.n_actions, self.temporal_features, self.current_features).to(device)
+        self.target_net = CNNGRU(input_shape, self.n_actions, self.temporal_features, self.current_features).to(device)
+
+        if model_path:
+            self.load_model(model_path)
+        else:
+            self.target_net.load_state_dict(self.policy_net.state_dict())
+            self.optimizer = optim.Adam(
+                self.policy_net.parameters(),
+                lr=float(self.config.LEARNING_RATE),
+                weight_decay=float(self.config.WEIGHT_DECAY),
+            )
+        self.target_net.eval()
+
+        self.memory = ReplayPrioritisedMemory(self.config.MEMORY_SIZE)
+
+        self.board_state_deque = deque(maxlen=self.config.SEQUENCE_LENGTH)
+        self.temporal_features_deque = deque(maxlen=self.config.SEQUENCE_LENGTH)
+        self.n_step_buffer = deque(maxlen=self.n_step)  # New: buffer for n-step returns
+        self.reset()
+
+    def update(self, state, action, next_state, reward, done):
+        _, _, feature = state
+        next_board, next_temporal_feature, next_feature = next_state
+
+        og_board_state_deque = np.array(list(self.board_state_deque))
+        og_temporal_features_deque = np.array(list(self.temporal_features_deque))
+
+        next_temporal_feature = np.array(next_temporal_feature)
+
+        self.board_state_deque.append(next_board)
+        self.temporal_features_deque.append(next_temporal_feature)
+
+        next_board_deque = np.array(self.board_state_deque)
+        next_temporal_features = np.array(self.temporal_features_deque)
+
+        # Store experience in n-step buffer
+        self.n_step_buffer.append((
+            (og_board_state_deque, og_temporal_features_deque, feature),
+            torch.tensor([action], device=self.device, dtype=torch.long),
+            (next_board_deque, next_temporal_features, next_feature),
+            reward,
+            done
+        ))
+
+        # If n-step buffer is full, calculate n-step return and add to memory
+        if len(self.n_step_buffer) == self.n_step:
+            n_step_return = self.calculate_n_step_return()
+            initial_state, initial_action, _, _, _ = self.n_step_buffer[0]
+            _, _, final_next_state, _, final_done = self.n_step_buffer[-1]
+            self.memory.push(initial_state, initial_action, final_next_state, n_step_return, final_done)
+
+    def calculate_n_step_return(self):
+        n_step_return = 0
+        for i, (_, _, _, reward, _) in enumerate(self.n_step_buffer):
+            n_step_return += (self.config.GAMMA ** i) * reward
+        _, _, last_next_state, _, last_done = self.n_step_buffer[-1]
+        if not last_done:
+            last_next_state_tensor = self.prepare_state_for_network(last_next_state)
+            with torch.no_grad():
+                n_step_return += (self.config.GAMMA ** self.n_step) * self.target_net(last_next_state_tensor).max(1)[0].item()
+        return n_step_return
+
+    def optimize_model(self):
+        if len(self.memory) < self.config.BATCH_SIZE:
+            return 0, {}
+
+        transitions, indices, weights = self.memory.sample(self.config.BATCH_SIZE)
+        batch = list(zip(*transitions))
+
+        state_batch = self.prepare_state_for_network(batch[0])
+        action_batch = torch.cat(batch[1])
+        next_state_batch = self.prepare_state_for_network(batch[2])
+        reward_batch = torch.tensor(batch[3], device=self.device, dtype=torch.float)
+        done_batch = torch.tensor(batch[4], device=self.device, dtype=torch.float)
+
+        state_action_values = self.policy_net(state_batch).gather(1, action_batch)
+
+        with torch.no_grad():
+            next_state_values = self.target_net(next_state_batch).max(1)[0]
+        next_state_values[done_batch] = 0
+
+        expected_state_action_values = reward_batch + (self.config.GAMMA ** self.n_step) * next_state_values
+
+        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1), reduction='none')
+        loss = (loss * torch.tensor(weights, device=self.device)).mean()
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), self.config.GRAD_CLIP)
+        self.optimizer.step()
+
+        # Update priorities in the replay memory
+        td_errors = torch.abs(expected_state_action_values - state_action_values.squeeze()).detach().cpu().numpy()
+        self.memory.update_priorities(indices, td_errors)
+
+        grad_norms = {name: param.grad.norm().item() for name, param in self.policy_net.named_parameters() if param.grad is not None}
+
+        return loss.item(), grad_norms
+
+    def prepare_state_for_network(self, state):
+        board_states, temporal_features, features = zip(*state)
+        board_states = torch.tensor(np.array(board_states), device=self.device, dtype=torch.float32)
+        temporal_features = torch.tensor(np.array(temporal_features), device=self.device, dtype=torch.float32)
+        features = torch.tensor(np.array(features), device=self.device, dtype=torch.float32)
+        return board_states, temporal_features, features
+
+    # Other methods (select_action, reset, etc.) remain the same
+```
+
+Key changes:
+
+1. Added `n_step` parameter to the agent's config.
+2. Introduced `n_step_buffer` to store the last n transitions.
+3. Modified `update` method to use the n-step buffer.
+4. Added `calculate_n_step_return` method to compute n-step returns.
+5. Updated `optimize_model` to use n-step returns.
+
+To use this refactored agent:
+
+1. Add `N_STEP` to your configuration file (e.g., `config.N_STEP = 3` for 3-step returns).
+2. Update your training loop to handle the n-step buffer:
+
+```python
+# In your training loop
+for episode in range(num_episodes):
+    state = env.reset()
+    done = False
+    while not done:
+```
