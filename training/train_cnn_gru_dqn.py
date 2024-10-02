@@ -59,6 +59,7 @@ def train(config_path, model_path=None):
             done = False
             loss: float = np.nan
             episode_q_values = []
+            episode_double_q_values = []
             cur_episode_steps: int = 0
             episode_cumulative_reward: float = 0.0
 
@@ -89,7 +90,12 @@ def train(config_path, model_path=None):
                 temporal_feature = next_temporal_feature
                 feature = next_feature
 
-                selected_action, (policy_action, eps_threshold, step_q_values, is_random_action) = agent.select_action(
+                selected_action, (
+                    policy_action,
+                    eps_threshold,
+                    (step_q_values, step_double_q_value),
+                    is_random_action,
+                ) = agent.select_action(
                     board_simple,
                     np.array(list(temporal_feature.values())),
                     np.array(list(feature.values())),
@@ -97,6 +103,7 @@ def train(config_path, model_path=None):
                 )
 
                 episode_q_values.append(step_q_values.cpu().numpy())
+                episode_double_q_values.append(step_double_q_value)
 
                 # TODO lets track the policy actions and the selected action instead of only the selected action
                 current_episode_action_count[selected_action] += 1
@@ -126,12 +133,12 @@ def train(config_path, model_path=None):
                     step_reward,
                     done,
                 )
-                logger.log_every_step(total_steps=env.unwrapped.get_total_steps(), info=next_info)
+                logger.log_every_step(total_steps=env.total_steps, info=next_info)
                 if config.OPTIMISE_EVERY_STEP:
                     loss, grad_norms = agent.optimize_model()
 
                     logger.log_optimise(
-                        global_step=env.unwrapped.get_total_steps(),
+                        global_step=env.total_steps,
                         grad_norms=grad_norms,
                         loss=loss,
                         eps_threshold=eps_threshold,
@@ -145,6 +152,7 @@ def train(config_path, model_path=None):
                 info["total_lines_cleared"],
                 eps_threshold,
                 episode_q_values,
+                episode_double_q_values,
             )
             logger.log_action_distribution_tensorboard(current_episode_action_count, episode)
             logger.log_hardware_usage_tensorboard(episode)

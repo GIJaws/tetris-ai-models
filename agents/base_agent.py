@@ -33,7 +33,14 @@ class TetrisAgent(ABC):
 
     @staticmethod
     def select_action_static(
-        state, policy_net, steps_done: int, n_actions: int, eps_start: float, eps_end: float, eps_decay: float
+        state,
+        policy_net,
+        target_net,
+        steps_done: int,
+        n_actions: int,
+        eps_start: float,
+        eps_end: float,
+        eps_decay: float,
     ):  # -> tuple[Any | int, Any | int, Any, Any, Any]:# -> tuple[Any | int, Any | int, Any, Any, Any]:# -> tuple[Any | int, Any | int, Any, Any, Any]:# -> tuple[Any | int, Any | int, Any, Any, Any]:# -> tuple[Any | int, Any | int, Any, Any, Any]:# -> tuple[Any | int, Any | int, Any, Any, Any]:# -> tuple[Any | int, Any | int, Any, Any, Any]:
         """Selects an action using epsilon-greedy policy.
 
@@ -55,14 +62,18 @@ class TetrisAgent(ABC):
 
         eps_threshold = eps_end + (eps_start - eps_end) * math.exp(-1.0 * steps_done / eps_decay)
         with torch.no_grad():
-            q_values = policy_net(state)
-            policy_action: int = cast(int, q_values.max(-1)[1].item())
+            policy_q_values = policy_net(state)
+            target_q_values = target_net(state)
+
+            # Double DQN: Use policy network to select action, target network to evaluate it
+            policy_action: int = cast(int, policy_q_values.max(-1)[1].item())
+            double_q_value = target_q_values[0, policy_action].item()
 
         is_random_action = sample < eps_threshold
         # TODO make hard drop have a lower chance of being chosen
         # TODO have random action come from game engine and do logic there for checking if the next move is a game over
         selected_action: int = policy_action if not is_random_action else random.randrange(n_actions)
-        return selected_action, policy_action, eps_threshold, q_values, is_random_action
+        return selected_action, policy_action, eps_threshold, (policy_q_values, double_q_value), is_random_action
 
     @staticmethod
     def compute_gradient_norm(model) -> float:

@@ -273,6 +273,7 @@ class LoggingManager:
         lines_cleared: int,
         epsilon: float,
         q_values,
+        episode_double_q_values,
     ):
         if self.writer is None:
             return
@@ -293,6 +294,17 @@ class LoggingManager:
             self.writer.add_scalar("Q-Values/Min", min_q, episode)
             self.writer.add_scalar("Q-Values/Max", max_q, episode)
             self.writer.add_scalar("Q-Values/StdDev", std_q, episode)
+
+        # Log Double Q-values statistics
+        if episode_double_q_values:
+            avg_double_q = np.mean(episode_double_q_values)
+            min_double_q = np.min(episode_double_q_values)
+            max_double_q = np.max(episode_double_q_values)
+            std_double_q = np.std(episode_double_q_values)
+            self.writer.add_scalar("Double Q-Values/Avg", avg_double_q, episode)
+            self.writer.add_scalar("Double Q-Values/Min", min_double_q, episode)
+            self.writer.add_scalar("Double Q-Values/Max", max_double_q, episode)
+            self.writer.add_scalar("Double Q-Values/StdDev", std_double_q, episode)
 
     # Add a method to log reward components to file
     def log_reward_components_file(self, reward_components: dict[str, float], episode: int):

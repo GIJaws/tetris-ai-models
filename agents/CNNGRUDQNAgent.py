@@ -53,16 +53,19 @@ class CGDAgent(TetrisAgent):
         # Process current feature
         current_feature_tensor = torch.tensor(np.array([current_feature]), dtype=torch.float32, device=self.device)
 
-        selected_action, policy_action, eps_threshold, q_values, is_random_action = self.select_action_static(
-            (states_tensor, temporal_feature_tensor, current_feature_tensor),
-            self.policy_net,
-            total_steps_done,
-            self.n_actions,
-            self.config.EPS_START,
-            self.config.EPS_END,
-            self.config.EPS_DECAY,
+        selected_action, policy_action, eps_threshold, (q_values, double_q_value), is_random_action = (
+            self.select_action_static(
+                (states_tensor, temporal_feature_tensor, current_feature_tensor),
+                self.policy_net,
+                self.target_net,
+                total_steps_done,
+                self.n_actions,
+                self.config.EPS_START,
+                self.config.EPS_END,
+                self.config.EPS_DECAY,
+            )
         )
-        return selected_action, (policy_action, eps_threshold, q_values, is_random_action)
+        return selected_action, (policy_action, eps_threshold, (q_values, double_q_value), is_random_action)
 
     def update(self, state, action, next_state, reward, done):
 
@@ -180,24 +183,17 @@ class CGDAgent(TetrisAgent):
             next_state_values = torch.zeros(self.config.BATCH_SIZE, device=self.device)
             non_final_mask = ~done_batch
             if non_final_mask.sum() > 0:
-
-                # Ensure non_final_mask is 1D
-                # if non_final_mask.dim() > 1:
-                # non_final_mask = non_final_mask.any(dim=(1, 2))  # Collapse along dimensions 1 and 2
-
-                # print(f"non_final_mask shape after collapsing: {non_final_mask.shape}")
-
-                # Apply the mask directly to next_state_boards_batch
-                non_final_next_states = next_state_boards_batch[non_final_mask]
-                # print(f"non_final_next_states shape: {non_final_next_states.shape}")
-
-                next_state_values[~done_batch] = self.target_net(
-                    (
-                        non_final_next_states,
-                        next_state_temporal_features_batch[non_final_mask],
-                        next_state_current_features_batch[non_final_mask],
-                    )
-                ).max(1)[0]
+                non_final_next_states = (
+                    next_state_boards_batch[non_final_mask],
+                    next_state_temporal_features_batch[non_final_mask],
+                    next_state_current_features_batch[non_final_mask],
+                )
+                # Use policy net to select action
+                next_state_actions = self.policy_net(non_final_next_states).max(1)[1].unsqueeze(1)
+                # Use target net to evaluate action
+                next_state_values[non_final_mask] = (
+                    self.target_net(non_final_next_states).gather(1, next_state_actions).squeeze(1)
+                )
 
         # Compute the expected Q values
         expected_state_action_values = (next_state_values * self.config.GAMMA) + reward_batch
