@@ -72,6 +72,16 @@ def train(config_path, model_path=None):
 
             agent.reset()
             board_history = [board_simple]
+
+            if not config.OPTIMISE_EVERY_STEP:  # TODO ensure this is the correct place to optimise once every episode
+                loss, grad_norms = agent.optimize_model()
+
+                logger.log_optimise(
+                    global_step=episode,
+                    grad_norms=grad_norms,
+                    loss=loss,
+                    eps_threshold=eps_threshold,
+                )
             while not done:
                 info = next_info
                 board_simple = next_board_simple
@@ -83,7 +93,7 @@ def train(config_path, model_path=None):
                     board_simple,
                     np.array(list(temporal_feature.values())),
                     np.array(list(feature.values())),
-                    env.total_steps,
+                    env.total_steps if config.OPTIMISE_EVERY_STEP else episode,
                 )
 
                 episode_q_values.append(step_q_values.cpu().numpy())
@@ -116,15 +126,16 @@ def train(config_path, model_path=None):
                     step_reward,
                     done,
                 )
-                loss, grad_norms = agent.optimize_model()
+                logger.log_every_step(total_steps=env.total_steps, info=next_info)
+                if config.OPTIMISE_EVERY_STEP:
+                    loss, grad_norms = agent.optimize_model()
 
-                logger.log_every_step(
-                    total_steps=env.total_steps,
-                    grad_norms=grad_norms,
-                    loss=loss,
-                    eps_threshold=eps_threshold,
-                    info=next_info,
-                )
+                    logger.log_optimise(
+                        global_step=env.total_steps,
+                        grad_norms=grad_norms,
+                        loss=loss,
+                        eps_threshold=eps_threshold,
+                    )
                 cur_episode_steps += 1
 
             logger.log_to_tensorboard_every_episode(
@@ -144,6 +155,7 @@ def train(config_path, model_path=None):
             # Save the trained model every SAVE_MODEL_INTERVAL
             if episode % config.SAVE_MODEL_INTERVAL == 0:
                 agent.save_model(logger.get_model_path(episode))
+
     except KeyboardInterrupt:
         print("Training interrupted by user.")
 

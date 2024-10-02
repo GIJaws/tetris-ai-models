@@ -119,7 +119,7 @@ class CGDAgent(TetrisAgent):
         print(f"Model saved to {path}")
 
     def reset(self, state_simple=None):
-        if state_simple is not None:
+        if state_simple is not None:  # TODO is this even useful?
             self.board_state = np.array(state_simple).reshape(10, 21)
 
         # Initialize with empty states

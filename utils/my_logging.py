@@ -186,19 +186,10 @@ class LoggingManager:
     def log_every_step(
         self,
         total_steps: int,
-        grad_norms: tuple[float, float],
-        loss: float,
-        eps_threshold: float,
         info,
     ):
 
         extra_info = info["extra_info"]
-        # Log gradient norms
-        self.writer.add_scalar("StepsStats/GradientNormBeforeClipping", grad_norms[0], total_steps)
-        self.writer.add_scalar("StepsStats/GradientNormAfterClipping", grad_norms[1], total_steps)
-
-        self.writer.add_scalar("StepsStats/loss", loss, total_steps)
-        self.writer.add_scalar("StepsStats/eps_threshold", eps_threshold, total_steps)
 
         for k, v in iterate_nested_dict(extra_info["current_stats"]):
             if isinstance(v, (list, tuple)):
@@ -207,6 +198,21 @@ class LoggingManager:
 
         for k, v in iterate_nested_dict(extra_info["rewards"]):
             self.writer.add_scalar(f"StepRewards/{k}", v, total_steps)
+
+    def log_optimise(
+        self,
+        global_step: int,
+        grad_norms: tuple[float, float],
+        loss: float,
+        eps_threshold: float,
+    ):
+
+        # Log gradient norms
+        self.writer.add_scalar("StepsStats/GradientNormBeforeClipping", grad_norms[0], global_step)
+        self.writer.add_scalar("StepsStats/GradientNormAfterClipping", grad_norms[1], global_step)
+
+        self.writer.add_scalar("StepsStats/loss", loss, global_step)
+        self.writer.add_scalar("StepsStats/eps_threshold", eps_threshold, global_step)
 
     def get_model_path(self, episode: int | None = None) -> str:
         if episode:
