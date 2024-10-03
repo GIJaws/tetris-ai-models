@@ -5,6 +5,7 @@ import gym_simpletetris
 import sys
 import os
 from typing import cast
+from typing_extensions import deprecated
 
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -19,6 +20,7 @@ from agents.CNNLSTMDQNAgent import CNNLSTMDQNAgent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+@deprecated("Use train_cnn_lstm_ddqn.py instead")
 def train(config_path, model_path=None):
     config = load_config(config_path)
     logger = LoggingManager(model_name=config.MODEL_NAME)

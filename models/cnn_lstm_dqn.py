@@ -2,8 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from typing_extensions import deprecated
 
 
+@deprecated("Use cnn_lstm.py instead")
 class CNNLSTMDQN(nn.Module):
     def __init__(self, input_shape, n_actions, n_features=11):
         super(CNNLSTMDQN, self).__init__()

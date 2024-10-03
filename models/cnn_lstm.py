@@ -1,11 +1,9 @@
-from PIL._deprecate import deprecate
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
 
-@deprecated(r"Use CNNLSTMDQN tetris-ai-models\models\cnn_lstm_dqn.py instead")
 class CNNLSTM(nn.Module):
     def __init__(self, board_shape, n_actions: int, temporal_features: list[str], current_features: list[str]):
         super(CNNLSTM, self).__init__()

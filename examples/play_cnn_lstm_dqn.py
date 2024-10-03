@@ -1,4 +1,3 @@
-from PIL._deprecate import deprecate
 import gymnasium as gym
 import gym_simpletetris
 import torch
@@ -6,6 +5,7 @@ import numpy as np
 from collections import deque
 import sys
 import os
+from typing_extensions import deprecated
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
@@ -21,7 +21,7 @@ from utils.reward_functions import calculate_board_inputs
 device = torch.device("cpu")
 
 
-@deprecated("Use play_cnn_lstm_ddqn.py")
+@deprecated("Use cnn_lstm.py instead")
 def play():
     config_path = r"tetris-ai-models\config\train_cnn_lstm_dqn.yaml"
     model_path = r"outputs\cnn_lstm_dqn_20240929_012903\models\cnn_lstm_dqn_episode_300.pth"
