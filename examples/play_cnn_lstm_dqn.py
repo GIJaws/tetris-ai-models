@@ -1,3 +1,4 @@
+from PIL._deprecate import deprecate
 import gymnasium as gym
 import gym_simpletetris
 import torch
@@ -10,6 +11,8 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
 from models.cnn_lstm_dqn import CNNLSTMDQN
+from utils.config import load_config
+from agents.CNNLSTMDQNAgent import CNNLSTMDQNAgent
 
 SEQUENCE_LENGTH = 20
 from gym_simpletetris.tetris.tetris_shapes import simplify_board, ACTION_COMBINATIONS
@@ -18,37 +21,33 @@ from utils.reward_functions import calculate_board_inputs
 device = torch.device("cpu")
 
 
+@deprecated("Use play_cnn_lstm_ddqn.py")
 def play():
-    try:
-        env = gym.make("SimpleTetris-v0", render_mode="human", initial_level=1000, num_lives=1000000000)
-
-    except gym.error.Error as e:
-        print(f"Error initializing environment: {e}")
-        return
+    config_path = r"tetris-ai-models\config\train_cnn_lstm_dqn.yaml"
+    model_path = r"outputs\cnn_lstm_dqn_20240929_012903\models\cnn_lstm_dqn_episode_300.pth"
+    config = load_config(config_path)
+    env = gym.make("SimpleTetris-v0", render_mode="human", initial_level=1000, num_lives=1000000000)
 
     state, info = env.reset()
-    state = simplify_board(state)
-    input_shape = (state.shape[0], state.shape[1])
+    state_simple = simplify_board(state)
+    input_shape = (state_simple.shape[0], state_simple.shape[1])
     n_actions = len(ACTION_COMBINATIONS)
 
     model = CNNLSTMDQN(input_shape, n_actions, 41).to(device)
-    model_path = r"outputs\cnn_lstm_dqn_20240928_220002\models\cnn_lstm_dqn_final.pth"
 
-    if not os.path.exists(model_path):
-        print(f"Model file {model_path} not found.")
-        return
+    agent = CNNLSTMDQNAgent(state_simple, input_shape, env.action_space, config, device, model_path=model_path)
 
     model.load_state_dict(torch.load(model_path, map_location=device))
 
     model.eval()
 
-    state_deque = deque([state] * SEQUENCE_LENGTH, maxlen=SEQUENCE_LENGTH)
     done = False
-    total_reward = 0
 
     try:
         while not done:
-            state_tensor = torch.tensor(np.array(state_deque), dtype=torch.float32, device=device).unsqueeze(0)
+            selected_action, (policy_action, eps_threshold, step_q_values, is_random_action) = agent.select_action(
+                state_simple, info, env.total_steps
+            )
 
             # Calculate additional features
             board_features = calculate_board_inputs(state, info)

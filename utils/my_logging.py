@@ -11,7 +11,7 @@ from gymnasium.wrappers import RecordVideo
 import cv2
 from collections import deque
 from gym_simpletetris.tetris.helpful_utils import format_value, iterate_nested_dict
-from gym_simpletetris.tetris.tetris_shapes import simplify_board, BASIC_ACTIONS
+from gym_simpletetris.tetris.tetris_shapes import simplify_board, BASIC_ACTIONS, ACTION_COMBINATIONS
 from utils.reward_functions import calculate_reward
 
 
@@ -183,11 +183,7 @@ class LoggingManager:
         )
         return env
 
-    def log_every_step(
-        self,
-        total_steps: int,
-        info,
-    ):
+    def log_every_step(self, total_steps: int, info, chicken_line_sum):
 
         extra_info = info["extra_info"]
 
@@ -198,6 +194,8 @@ class LoggingManager:
 
         for k, v in iterate_nested_dict(extra_info["rewards"]):
             self.writer.add_scalar(f"StepRewards/{k}", v, total_steps)
+
+        self.writer.add_scalar("ChickenLineSum", chicken_line_sum, total_steps)
 
     def log_optimise(
         self,
@@ -274,6 +272,7 @@ class LoggingManager:
         epsilon: float,
         q_values,
         episode_double_q_values,
+        chicken_line_sum,
     ):
         if self.writer is None:
             return
@@ -281,6 +280,7 @@ class LoggingManager:
         # Log basic episode metrics
         self.writer.add_scalar("Episode/Reward", episode_reward, episode)
         self.writer.add_scalar("Episode/Steps", episode_steps, episode)
+        self.writer.add_scalar("Episode/chicken_line_sum", chicken_line_sum, episode)
         self.writer.add_scalar("Episode/Lines Cleared", lines_cleared, episode)
         self.writer.add_scalar("Episode/Epsilon", epsilon, episode)
 
@@ -322,7 +322,7 @@ class LoggingManager:
 
         for action, count in action_count.items():
             frequency = count / total_actions
-            action_str = BASIC_ACTIONS[action]
+            action_str = BASIC_ACTIONS.get(action, ACTION_COMBINATIONS[action])
             self.writer.add_scalar(f"Actions/{action}: {action_str}", frequency, episode)
 
     def log_hardware_usage_tensorboard(self, episode: int):
@@ -335,41 +335,6 @@ class LoggingManager:
         if torch.cuda.is_available():
             vram_usage = torch.cuda.memory_allocated() / (1024**3)
             self.writer.add_scalar("Hardware/VRAM Usage", vram_usage, episode)
-
-    # Unified Logging Method for Each Episode
-    # def log_episode_end(
-    #     self,
-    #     episode: int,
-    #     episode_reward: float,
-    #     episode_steps: int,
-    #     total_lines_cleared: int,
-    #     epsilon: float,
-    #     # loss: float,
-    #     q_values: torch.tensor,
-    #     action_count: dict[int, int],
-    #     reward_components: dict[str, float],
-    #     log_interval=10,
-    # ):
-    #     # Log to files periodically
-    #     if episode % log_interval == 0:
-    #         self.log_episode_info_file(episode, episode_reward, episode_steps, total_lines_cleared, epsilon)
-    #     if episode % log_interval == 0:
-    #         self.log_q_values_file(episode, q_values)
-    #     if episode % log_interval == 0:
-    #         self.log_action_distribution_file(action_count, episode)
-    #     # if episode % log_interval == 0 and loss is not None:
-    #     #     self.log_loss_file(loss, episode)
-    #     if episode % log_interval == 0:
-    #         self.log_hardware_usage_file(episode)
-    #     if episode % log_interval == 0:
-    #         self.log_reward_components_file(reward_components, episode)  # Log reward components to file
-
-    #     # Log to TensorBoard every episode
-    #     self.log_to_tensorboard_every_episode(
-    #         episode, episode_reward, episode_steps, total_lines_cleared, epsilon, q_values, reward_components
-    #     )
-    #     self.log_action_distribution_tensorboard(action_count, episode)
-    #     self.log_hardware_usage_tensorboard(episode)
 
     def close_logging(self):
         if self.writer:

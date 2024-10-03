@@ -1,13 +1,14 @@
-from math import e
+from PIL._deprecate import deprecate
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
 
-class CNNGRU(nn.Module):
+@deprecated(r"Use CNNLSTMDQN tetris-ai-models\models\cnn_lstm_dqn.py instead")
+class CNNLSTM(nn.Module):
     def __init__(self, board_shape, n_actions: int, temporal_features: list[str], current_features: list[str]):
-        super(CNNGRU, self).__init__()
+        super(CNNLSTM, self).__init__()
 
         self.n_actions = n_actions
         self.board_shape = board_shape
@@ -15,7 +16,7 @@ class CNNGRU(nn.Module):
         self.current_features = current_features
 
         self._init_cnn_layers()
-        self._init_gru_layers()
+        self._init_lstm_layers()
         self._init_fc_layers()
 
     def _init_cnn_layers(self):
@@ -39,30 +40,21 @@ class CNNGRU(nn.Module):
 
         self.conv_out_size = self._get_conv_output()
 
-    def _init_gru_layers(self):
-        # GRU input size: CNN output + temporal features
-        """
-        Initialize the GRU layers to capture temporal information evolving across board states.
+    def _init_lstm_layers(self):
+        # LSTM input size: CNN output + temporal features
 
-        The input size to the GRU is the sum of the CNN output size and the number of temporal features.
+        self.lstm_input_size = self.conv_out_size + len(self.temporal_features)
 
-        The GRU is set up to have 2 layers, with a hidden size of 256, and dropout of 0.2.
-
-        The output size of the GRU is the hidden size, which is used as input to the fully connected layers.
-
-        """
-        self.gru_input_size = self.conv_out_size + len(self.temporal_features)
-
-        self.gru = nn.GRU(
-            input_size=self.gru_input_size, hidden_size=512, num_layers=10, batch_first=True, dropout=0.2
+        self.lstm = nn.LSTM(
+            input_size=self.lstm_input_size, hidden_size=512, num_layers=10, batch_first=True, dropout=0.2
         )
-        self.gru_out_size = self.gru.hidden_size
+        self.lstm_out_size = self.lstm.hidden_size
 
     def _init_fc_layers(self):
         """
         Initialize the fully connected layers for computing the Q-values.
 
-        The input size to the first fully connected layer is the sum of the GRU output size and the number of current features.
+        The input size to the first fully connected layer is the sum of the LSTM output size and the number of current features.
 
         The first fully connected layer has 256 neurons, and the second fully connected layer has the number of actions as neurons.
 
@@ -70,7 +62,7 @@ class CNNGRU(nn.Module):
 
         The dropout rate is set to 0.4.
         """
-        fc_input_size = self.gru_out_size + len(self.current_features)
+        fc_input_size = self.lstm_out_size + len(self.current_features)
 
         self.fc1 = nn.Linear(fc_input_size, 256)
 
@@ -79,13 +71,13 @@ class CNNGRU(nn.Module):
 
     def forward(self, x):
         """
-        The forward method of the CNN-GRU model.
+        The forward method of the CNN-LSTM model.
 
         The input is a tuple of three elements: boards, temporal_features, and current_features.
 
         The boards are processed through the CNN, and the output is combined with the temporal features.
 
-        The combined output is then processed through the GRU, and the last output of the GRU is combined with the current features.
+        The combined output is then processed through the LSTM, and the last output of the LSTM is combined with the current features.
 
         The final output is computed by passing the combined output through two fully connected layers.
 
@@ -106,16 +98,16 @@ class CNNGRU(nn.Module):
         processed_boards = self._process_cnn(boards)  # output shape: [20, 1, 13440]
 
         # Combine CNN output with temporal features
-        gru_input = torch.cat([processed_boards, temporal_features], dim=2).float()
+        lstm_input = torch.cat([processed_boards, temporal_features], dim=2).float()
         # output shape: [Sequence length=20, IDK=1, 13440+len(temporal_features)]
         # TODO can we make this stack?
 
-        # Process through GRU
-        gru_out_all, _ = self.gru(gru_input)
-        gru_out = gru_out_all[:, -1, :]  # Take the last output
+        # Process through LSTM
+        lstm_out_all, _ = self.lstm(lstm_input)
+        lstm_out = lstm_out_all[:, -1, :]  # Take the last output
 
-        # Combine GRU output with current features
-        combined = torch.cat([gru_out, current_features], dim=1)
+        # Combine LSTM output with current features
+        combined = torch.cat([lstm_out, current_features], dim=1)
 
         # Final FC layers
         x = F.leaky_relu(self.fc1(combined))

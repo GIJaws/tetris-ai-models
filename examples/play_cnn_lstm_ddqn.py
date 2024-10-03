@@ -14,7 +14,8 @@ from gym_simpletetris.tetris.tetris_shapes import ACTION_COMBINATIONS, simplify_
 from gym_simpletetris.tetris.tetris_env import TetrisEnv
 from utils.my_logging import LoggingManager
 from utils.config import load_config
-from agents.CNNGRUDQNAgent import CGDAgent
+from agents.CNNLSTMDDQNAgent import CLDDAgent
+
 from utils.reward_functions import extract_temporal_feature, extract_current_feature
 
 
@@ -38,7 +39,7 @@ def play(config_path, model_path):
     next_board, next_info = env.reset()
     next_board_simple = simplify_board(next_board)
 
-    agent = CGDAgent(
+    agent = CLDDAgent(
         next_board_simple,
         env.action_space,
         extract_temporal_feature(next_info),
@@ -95,6 +96,6 @@ def play(config_path, model_path):
 
 if __name__ == "__main__":
     config_path = r"tetris-ai-models\config\train_cnn_gru_dqn.yaml"
-    model_path = r"outputs\cnn_lstm_double_dqn_20241003_104119\models\cnn_lstm_double_dqn_episode_11700.pth"
+    model_path = r"outputs\cnn_lstm_double_dqn_20241003_153730\models\cnn_lstm_double_dqn_episode_400.pth"
 
     play(config_path, model_path)

@@ -2,7 +2,7 @@ from typing import cast
 from markdown.util import deprecated
 import numpy as np
 from scipy import ndimage
-from gym_simpletetris.tetris.tetris_shapes import SHAPE_NAMES
+from gym_simpletetris.tetris.tetris_shapes import SHAPE_NAMES, ACTION_COMBINATIONS
 
 
 def calculate_reward(board_history, done, info) -> tuple[float, dict]:
@@ -24,7 +24,9 @@ def calculate_reward(board_history, done, info) -> tuple[float, dict]:
     # Calculate previous board statistics (if available)
     # TODO implement penalty if spamming the same action or bad finness
     if len(board_history) > 1:
-        prev_stats = calculate_board_statistics(info["prev_info"]["settled_board"], info["prev_info"])
+        prev_stats = calculate_board_statistics(
+            info["prev_info"].get("settled_board", settled_board), info["prev_info"]
+        )
     else:
         prev_stats = {
             "lives_left": 0,
@@ -101,7 +103,7 @@ def calculate_board_statistics(board, info):
         "piece_timer": info.get("piece_timer", 0),
         "gravity_interval": info.get("gravity_interval", 60),
         "anchor": info.get("anchor", (np.nan, np.nan)),
-        "statistics": info["statistics"],
+        # "statistics": info["statistics"],
         "hold_used": info["hold_used"],
         "current_piece_coords": info["current_piece_coords"],
         "ghost_piece_coords": info["ghost_piece_coords"],
@@ -189,11 +191,9 @@ def calculate_rewards(
 
     # Determine if the player lost a life
     # TODO make this more robust and check if logic is broken elsewhere
-    lost_a_life = (
-        prev_stats.get("lives_left", 0) > current_stats.get("lives_left", 0)
-        or prev_stats.get("deaths", 0) < current_stats.get("deaths", 0)
-        or current_stats.get("deaths", 0) > 0
-    )
+    lost_a_life = prev_stats.get("lives_left", 0) > current_stats.get("lives_left", 0) or prev_stats.get(
+        "deaths", 0
+    ) < current_stats.get("deaths", 0)
 
     piece_threshold = 20
 
@@ -250,8 +250,8 @@ def calculate_rewards(
         unscaled_penalties["game_over_penalty"] = -10
 
     if lost_a_life:
-        scaled_penalties["lost_a_life"] = -0.9
-        unscaled_penalties["lost_a_life"] = -0.9
+        scaled_penalties["lost_a_life"] = -3
+        unscaled_penalties["lost_a_life"] = -3
 
     # Combine scaled rewards and penalties
     total_scaled_rewards: float = sum(scaled_rewards.values())
@@ -335,7 +335,7 @@ def extract_temporal_feature(info):
     :return: Dict of temporal feature values
     """
     anchor = info.get("anchor", (-99, -99))  # Default to (-99, -99) if not available
-    x_anchor, y_anchor = anchor
+    # x_anchor, y_anchor = anchor
 
     current_piece = info.get("current_piece", -99)
 
@@ -357,7 +357,7 @@ def extract_temporal_feature(info):
         **{f"cur_piece_y_coords_{i}": y for i, (x, y) in enumerate(info["current_piece_coords"])},
         **{f"next_piece_{i}": piece for i, piece in enumerate(next_pieces)},
         "held_piece": held_piece or -99,
-        "action": info.get("action", -99),
+        **{f"action_{action_name}": info.get("action", -99) == action_name for action_name in ACTION_COMBINATIONS},
     }
 
 
@@ -372,13 +372,13 @@ def extract_current_feature(board_simple, info):
     heights = get_column_heights(board_simple)
 
     return {
-        # "holes": count_holes(board_simple),
-        # "bumpiness": np.sum(np.abs(np.diff(heights))),
+        "holes": count_holes(board_simple),
+        "bumpiness": np.sum(np.abs(np.diff(heights))),
+        "agg_height": np.sum(heights),
         "score": info.get("score", 0),
         "hold_used": info["hold_used"],
-        # "agg_height": np.sum(heights),
-        **{f"ghost_piece_x_coords_{i}": x for i, (x, y) in enumerate(info["ghost_piece_coords"])},
-        **{f"ghost_piece_y_coords_{i}": y for i, (x, y) in enumerate(info["ghost_piece_coords"])},
+        # **{f"ghost_piece_x_coords_{i}": x for i, (x, y) in enumerate(info["ghost_piece_coords"])},
+        # **{f"ghost_piece_y_coords_{i}": y for i, (x, y) in enumerate(info["ghost_piece_coords"])},
         # "piece_timer": info.get("piece_timer", 0),
         # **{f"col_{i}_height": h for i, h in enumerate(heights)},
     }
