@@ -44,7 +44,7 @@ class CNNLSTM(nn.Module):
         self.lstm_input_size = self.conv_out_size + len(self.temporal_features)
 
         self.lstm = nn.LSTM(
-            input_size=self.lstm_input_size, hidden_size=512, num_layers=10, batch_first=True, dropout=0.2
+            input_size=self.lstm_input_size, hidden_size=256, num_layers=3, batch_first=True, dropout=0.2
         )
         self.lstm_out_size = self.lstm.hidden_size
 
@@ -105,7 +105,7 @@ class CNNLSTM(nn.Module):
         lstm_out = lstm_out_all[:, -1, :]  # Take the last output
 
         # Combine LSTM output with current features
-        combined = torch.cat([lstm_out, current_features], dim=1)
+        combined = torch.cat([lstm_out, current_features], dim=1).float()
 
         # Final FC layers
         x = F.leaky_relu(self.fc1(combined))

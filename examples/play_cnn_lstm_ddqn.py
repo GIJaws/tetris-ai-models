@@ -96,6 +96,6 @@ def play(config_path, model_path):
 
 if __name__ == "__main__":
     config_path = r"tetris-ai-models\config\train_cnn_gru_dqn.yaml"
-    model_path = r"outputs\cnn_lstm_double_dqn_20241003_153730\models\cnn_lstm_double_dqn_episode_400.pth"
+    model_path = r"E:\Projects\AI stuff\Tetris\tetrais\outputs\cnn_lstm_double_dqn_20241003_185806\models\cnn_lstm_double_dqn_final.pth"
 
     play(config_path, model_path)

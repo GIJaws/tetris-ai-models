@@ -4,7 +4,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from collections import deque
 from models.cnn_lstm import CNNLSTM
-from utils.replay_memory import ReplayPrioritisedMemory
+from utils.replay_memory import NStepReplayMemory
 from agents.base_agent import TetrisAgent
 
 
@@ -39,7 +39,7 @@ class CLDDAgent(TetrisAgent):
             )
         self.target_net.eval()
 
-        self.memory = ReplayPrioritisedMemory(self.config.MEMORY_SIZE)
+        self.memory = NStepReplayMemory(self.config.MEMORY_SIZE, n_step=self.config.N_STEP, gamma=self.config.GAMMA)
 
         self.board_state_deque = deque(maxlen=self.config.SEQUENCE_LENGTH)
         self.temporal_features_deque = deque(maxlen=self.config.SEQUENCE_LENGTH)
@@ -177,30 +177,41 @@ class CLDDAgent(TetrisAgent):
         reward_batch = torch.tensor(batch[3], dtype=torch.float32, device=self.device)
         done_batch = torch.tensor(batch[4], dtype=torch.bool, device=self.device)
 
-        # Compute Q(s_t, a)
+        # Compute Q(s_t, a) - the model computes Q(s_t), then we select the columns of actions taken
         state_action_values = self.policy_net(
             (state_boards_batch, state_temporal_features_batch, state_current_features_batch)
         ).gather(1, action_batch)
 
-        # Compute V(s_{t+1})
+        # Compute V(s_{t+1}) for all next states using Double DQN
+
         with torch.no_grad():
+            # Use policy net to select action
+            next_state_actions = (
+                self.policy_net(
+                    (next_state_boards_batch, next_state_temporal_features_batch, next_state_current_features_batch)
+                )
+                .max(1)[1]
+                .unsqueeze(1)
+            )
+
+            # Use target net to evaluate action
             next_state_values = torch.zeros(self.config.BATCH_SIZE, device=self.device)
             non_final_mask = ~done_batch
             if non_final_mask.sum() > 0:
-                non_final_next_states = (
-                    next_state_boards_batch[non_final_mask],
-                    next_state_temporal_features_batch[non_final_mask],
-                    next_state_current_features_batch[non_final_mask],
-                )
-                # Use policy net to select action
-                next_state_actions = self.policy_net(non_final_next_states).max(1)[1].unsqueeze(1)
-                # Use target net to evaluate action
                 next_state_values[non_final_mask] = (
-                    self.target_net(non_final_next_states).gather(1, next_state_actions).squeeze(1)
+                    self.target_net(
+                        (
+                            next_state_boards_batch[non_final_mask],
+                            next_state_temporal_features_batch[non_final_mask],
+                            next_state_current_features_batch[non_final_mask],
+                        )
+                    )
+                    .gather(1, next_state_actions[non_final_mask])
+                    .squeeze(1)
                 )
 
         # Compute the expected Q values
-        expected_state_action_values = (next_state_values * self.config.GAMMA) + reward_batch
+        expected_state_action_values = reward_batch + (self.config.GAMMA**self.config.N_STEP) * next_state_values
 
         # Compute Huber loss
         loss = F.smooth_l1_loss(state_action_values.squeeze(), expected_state_action_values)
@@ -216,6 +227,7 @@ class CLDDAgent(TetrisAgent):
 
         # Calculate gradient norm after clipping
         grad_norm_after = CLDDAgent.compute_gradient_norm(self.policy_net)
+
         self.optimizer.step()
 
         return loss.item(), (grad_norm_before, grad_norm_after)

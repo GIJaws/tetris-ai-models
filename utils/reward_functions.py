@@ -77,25 +77,18 @@ def get_all_actions(data, count=0, max_depth=10):
     return actions
 
 
-def get_column_heights(board):
-    non_zero_mask = board != 0
-    heights = board.shape[1] - np.argmax(non_zero_mask, axis=1)
-    return np.where(non_zero_mask.any(axis=1), heights, 0)
-
-
 def calculate_board_statistics(board, info):
     """Calculate detailed statistics for a given board state."""
-    heights = get_column_heights(board)
 
     return {
         "time": info.get("time", 0),
-        "max_height": np.max(heights),
-        "avg_height": np.mean(heights),
-        "min_height": np.min(heights),
-        "heights": heights.tolist(),
-        "bumpiness": np.sum(np.abs(np.diff(heights))),
+        "max_height": np.max(info["heights"]),
+        "avg_height": np.mean(info["heights"]),
+        "min_height": np.min(info["heights"]),
+        "info": info["heights"].tolist(),
+        "bumpiness": np.sum(np.abs(np.diff(info["heights"]))),
         "density": np.sum(board) / (board.shape[0] * board.shape[1]),
-        "max_height_density": np.sum(board) / max(1, (board.shape[0] * np.max(heights))),
+        "max_height_density": np.sum(board) / max(1, (board.shape[0] * np.max(info["heights"]))),
         "lives_left": info.get("lives_left", -1),
         "deaths": info.get("deaths", 1),
         "level": info.get("level", 1),
@@ -113,7 +106,7 @@ def calculate_board_statistics(board, info):
 @deprecated("")
 def calculate_board_inputs(board, info, num_actions=2):  # TODO move this function to somewhere more relevant
     """Calculate detailed statistics for a given board state. Used for model input."""
-    heights = get_column_heights(board)
+    heights = info["heights"]
     actions: list[int] = get_all_actions(info)
 
     padded_actions = actions[:num_actions] + [-99] * (
@@ -138,7 +131,7 @@ def calculate_board_inputs(board, info, num_actions=2):  # TODO move this functi
     next_pieces = next_pieces + padding
 
     return {
-        "holes": count_holes(board),
+        "holes": info["holes"],
         "bumpiness": np.sum(np.abs(np.diff(heights))),
         "lines_cleared": info.get("lines_cleared_per_step", 0),
         # "score": info.get("score", 0),
@@ -201,7 +194,7 @@ def calculate_rewards(
 
     # Raw penalties and rewards
     unscaled_penalties: dict[str, float] = {
-        "height_penalty": max_height * (max_height >= 18),
+        "height_penalty": max_height * (max_height >= 14),
         "hole_penalty": info["holes"],
         "piece_timer": info["piece_timer"] * (info["piece_timer"] >= piece_threshold),
         "held_penalty": held_penalty,
@@ -217,7 +210,7 @@ def calculate_rewards(
         "height_penalty": (0, 20),
         "hole_penalty": (0, 200),
         "piece_timer": (0, piece_threshold * 10),
-        "held_penalty": (0, 4),  # actually (0, 1) but this makes it 0.25 instead of 1 when true
+        "held_penalty": (0, 16),  # actually (0, 1) but this makes it 1/16 instead of 1 when true
         "hole_increase": (0, 4),  # ^^^
     }
 
@@ -246,18 +239,21 @@ def calculate_rewards(
 
     # If the game is over, apply game over penalty
     if game_over:
-        scaled_penalties["game_over_penalty"] = -10
-        unscaled_penalties["game_over_penalty"] = -10
+        scaled_penalties["game_over_penalty"] = -1
+        unscaled_penalties["game_over_penalty"] = -1
 
     if lost_a_life:
-        scaled_penalties["lost_a_life"] = -3
-        unscaled_penalties["lost_a_life"] = -3
+        scaled_penalties["lost_a_life"] = -0.9
+        unscaled_penalties["lost_a_life"] = -0.9
 
     # Combine scaled rewards and penalties
     total_scaled_rewards: float = sum(scaled_rewards.values())
     total_scaled_penalties: float = sum(scaled_penalties.values())
     total_unscaled_rewards: float = sum(unscaled_rewards.values())
     total_unscaled_penalties: float = abs(sum(unscaled_penalties.values())) * -1
+
+    if not lost_a_life or not game_over:
+        total_scaled_penalties: float = max(total_scaled_penalties, -0.8)
 
     # Update the result with the scaled values
     result["scaled_rewards_dict"] = scaled_rewards
@@ -282,20 +278,7 @@ def calculate_well_depth(board):
     return 0  # TODO THIS IS A STUB
 
 
-def count_holes(board):
-    holes = 0
-    num_cols, num_rows = board.shape
-    for col in range(num_cols):
-        block_found = False
-        for row in range(num_rows):
-            cell = board[col, row]
-            if cell != 0:
-                block_found = True
-            elif block_found and cell == 0:
-                holes += 1
-    return holes
-
-
+@deprecated("this should already be in info")
 def remove_floating_blocks(board):
     """
     Removes floating blocks (including the falling piece) from the board.
@@ -334,17 +317,12 @@ def extract_temporal_feature(info):
     :param info: Dictionary containing game state information
     :return: Dict of temporal feature values
     """
-    anchor = info.get("anchor", (-99, -99))  # Default to (-99, -99) if not available
-    # x_anchor, y_anchor = anchor
-
-    current_piece = info.get("current_piece", -99)
-
     held_piece = info.get("held_piece_name", None)
     if held_piece:
         held_piece = SHAPE_NAMES.index(held_piece)
 
     # TODO make the number of next pieces configurable instead of fixed at 4
-    num_next_pieces = 1
+    num_next_pieces = 4
     next_pieces = info.get("next_piece", [])[:num_next_pieces]  # Get up to num_next_pieces next pieces
     next_pieces = [SHAPE_NAMES.index(piece) for piece in next_pieces]
     next_pieces = next_pieces + [-99] * (num_next_pieces - len(next_pieces))
@@ -352,12 +330,22 @@ def extract_temporal_feature(info):
     return {
         # "x_anchor": x_anchor,
         # "y_anchor": y_anchor,
-        "current_piece": SHAPE_NAMES.index(current_piece),
-        **{f"cur_piece_x_coords_{i}": x for i, (x, y) in enumerate(info["current_piece_coords"])},
-        **{f"cur_piece_y_coords_{i}": y for i, (x, y) in enumerate(info["current_piece_coords"])},
-        **{f"next_piece_{i}": piece for i, piece in enumerate(next_pieces)},
-        "held_piece": held_piece or -99,
-        **{f"action_{action_name}": info.get("action", -99) == action_name for action_name in ACTION_COMBINATIONS},
+        # "current_piece": SHAPE_NAMES.index(current_piece),
+        # **{f"next_piece_{i}": piece for i, piece in enumerate(next_pieces)},
+        # "held_piece": held_piece or -99,
+        # **{f"cur_piece_x_coords_{i}": x / 10 for i, (x, y) in enumerate(info["current_piece_coords"])},
+        # **{f"cur_piece_y_coords_{i}": y / 20 for i, (x, y) in enumerate(info["current_piece_coords"])},
+        **{f"action_{action_name}": info["actions"][0] == action_name for action_name in ACTION_COMBINATIONS},
+        **{f"current_piece_{name}": next_pieces == name for name in SHAPE_NAMES},
+        **{
+            f"next_piece_{i}_{name}": piece == SHAPE_NAMES.index(name)
+            for i, piece in enumerate(next_pieces)
+            for name in SHAPE_NAMES
+        },
+        **{
+            f"held_piece_{name}": held_piece == SHAPE_NAMES.index(name) if held_piece is not None else False
+            for name in SHAPE_NAMES
+        },
     }
 
 
@@ -369,16 +357,14 @@ def extract_current_feature(board_simple, info):
     :param info: Dictionary containing game state information
     :return: Dict of current feature values
     """
-    heights = get_column_heights(board_simple)
 
     return {
-        "holes": count_holes(board_simple),
-        "bumpiness": np.sum(np.abs(np.diff(heights))),
-        "agg_height": np.sum(heights),
-        "score": info.get("score", 0),
+        "holes": info["holes"] / 200,
+        "agg_height": np.sum(info["heights"]) / 200,
         "hold_used": info["hold_used"],
-        # **{f"ghost_piece_x_coords_{i}": x for i, (x, y) in enumerate(info["ghost_piece_coords"])},
-        # **{f"ghost_piece_y_coords_{i}": y for i, (x, y) in enumerate(info["ghost_piece_coords"])},
-        # "piece_timer": info.get("piece_timer", 0),
+        # "bumpiness": np.sum(np.abs(np.diff(info["heights"]))) / 200,
+        # "score": info.get("score", 0),
+        # **{f"ghost_piece_x_coords_{i}": x / 10 for i, (x, y) in enumerate(info["ghost_piece_coords"])},
+        # **{f"ghost_piece_y_coords_{i}": y / 20 for i, (x, y) in enumerate(info["ghost_piece_coords"])},
         # **{f"col_{i}_height": h for i, h in enumerate(heights)},
     }

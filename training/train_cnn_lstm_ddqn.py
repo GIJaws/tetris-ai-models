@@ -10,7 +10,7 @@ from typing import cast
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
-from gym_simpletetris.tetris.tetris_shapes import ACTION_COMBINATIONS, simplify_board
+from gym_simpletetris.tetris.tetris_shapes import ACTION_COMBINATIONS
 from gym_simpletetris.tetris.tetris_env import TetrisEnv
 from utils.my_logging import LoggingManager
 from utils.config import load_config
@@ -41,7 +41,7 @@ def train(config_path, model_path=None):
     )
 
     board, next_info = env.reset()
-    board_simple = simplify_board(board)
+    board_simple = next_info["simple_board"]
 
     agent = CLDDAgent(
         board_simple,
@@ -66,7 +66,7 @@ def train(config_path, model_path=None):
 
             next_board, next_info = env.reset()
 
-            next_board_simple = simplify_board(next_board)
+            next_board_simple = next_info["simple_board"]
             next_temporal_feature = extract_temporal_feature(next_info)
             next_feature = extract_current_feature(board_simple, next_info)
 
@@ -112,7 +112,7 @@ def train(config_path, model_path=None):
                     ACTION_COMBINATIONS[selected_action]
                 )
                 done = terminated or truncated
-                next_board_simple = simplify_board(next_board)
+                next_board_simple = next_info["simple_board"]
                 board_history.append(next_board_simple)
 
                 step_reward, extra_info = calculate_reward(board_history, done, next_info)
@@ -124,10 +124,14 @@ def train(config_path, model_path=None):
                 episode_cumulative_reward += step_reward
 
                 agent.update(
-                    (board_simple, np.array(list(temporal_feature.values())), np.array(list(feature.values()))),
+                    (
+                        info["float_board_state"],
+                        np.array(list(temporal_feature.values())),
+                        np.array(list(feature.values())),
+                    ),
                     selected_action,
                     (
-                        next_board_simple,
+                        next_info["float_board_state"],
                         np.array(list(next_temporal_feature.values())),
                         np.array(list(next_feature.values())),
                     ),
@@ -179,5 +183,7 @@ def train(config_path, model_path=None):
 
 if __name__ == "__main__":
     config_path = r"tetris-ai-models\config\train_cnn_lstm_ddqn.yaml"
-    model_path_str = r"outputs\cnn_lstm_double_dqn_20241003_163143\models\cnn_lstm_double_dqn_final.pth"
+    model_path_str = (
+        None if r"outputs\cnn_lstm_double_dqn_20241003_182721\models\cnn_lstm_double_dqn_episode_200.pth" else None
+    )
     train(config_path, model_path_str)
