@@ -4,7 +4,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from collections import deque
 from models.cnn_lstm import CNNLSTM
-from utils.replay_memory import NStepReplayMemory
+from utils.replay_memory import NStepPrioritizedReplayMemory
 from agents.base_agent import TetrisAgent
 
 
@@ -46,7 +46,14 @@ class CLDDAgent(TetrisAgent):
         print("Policy net training:", self.policy_net.training)
         print("Target net training:", self.target_net.training)
 
-        self.memory = NStepReplayMemory(self.config.MEMORY_SIZE, n_step=self.config.N_STEP, gamma=self.config.GAMMA)
+        self.memory = NStepPrioritizedReplayMemory(
+            capacity=self.config.MEMORY_SIZE,
+            n_step=self.config.N_STEP,
+            gamma=self.config.GAMMA,
+            alpha=self.config.PRIORITY_ALPHA,
+            beta=self.config.PRIORITY_BETA,
+            epsilon=self.config.PRIORITY_EPSILON,
+        )
 
         self.board_state_deque = deque(maxlen=self.config.SEQUENCE_LENGTH)
         self.temporal_features_deque = deque(maxlen=self.config.SEQUENCE_LENGTH)
@@ -79,7 +86,6 @@ class CLDDAgent(TetrisAgent):
         return selected_action, (policy_action, eps_threshold, (q_values, double_q_value), is_random_action)
 
     def update(self, state, action, next_state, reward, done, lost_a_life=False):
-
         _, _, feature = state
         next_board, next_temporal_feature, next_feature = next_state
 
@@ -94,12 +100,32 @@ class CLDDAgent(TetrisAgent):
         next_board_deque = np.array(self.board_state_deque)
         next_temporal_features = np.array(self.temporal_features_deque)
 
+        # Calculate TD error
+        with torch.no_grad():
+            state_tensor = (
+                torch.FloatTensor(og_board_state_deque).unsqueeze(0).to(self.device),
+                torch.FloatTensor(og_temporal_features_deque).unsqueeze(0).to(self.device),
+                torch.FloatTensor(feature).unsqueeze(0).to(self.device),
+            )
+            next_state_tensor = (
+                torch.FloatTensor(next_board_deque).unsqueeze(0).to(self.device),
+                torch.FloatTensor(next_temporal_features).unsqueeze(0).to(self.device),
+                torch.FloatTensor(next_feature).unsqueeze(0).to(self.device),
+            )
+
+            current_q = self.policy_net(state_tensor)[0, action].item()
+            next_q = self.target_net(next_state_tensor).max(1)[0].item()
+
+            expected_q = reward + (self.config.GAMMA * next_q * (1 - done))
+            td_error = abs(current_q - expected_q)
+
         self.memory.push(
             (og_board_state_deque, og_temporal_features_deque, feature),
             torch.tensor([action], device=self.device, dtype=torch.long),
             (next_board_deque, next_temporal_features, next_feature),
             reward,
             done or lost_a_life,
+            td_error,
         )
 
     def load_model(self, path: str):
@@ -150,7 +176,7 @@ class CLDDAgent(TetrisAgent):
         if len(self.memory) < self.config.BATCH_SIZE:
             return np.nan, (np.nan, np.nan)  # No loss to report
 
-        transitions = self.memory.sample(self.config.BATCH_SIZE)
+        transitions, indices, weights = self.memory.sample(self.config.BATCH_SIZE)
         batch = list(zip(*transitions))
 
         # Unpack the state tuples
@@ -161,21 +187,17 @@ class CLDDAgent(TetrisAgent):
 
         # Convert to tensors
         state_boards_batch = torch.stack([torch.from_numpy(item) for item in state_boards]).to(self.device)
-
         state_temporal_features_batch = torch.stack([torch.from_numpy(item) for item in state_temporal_features]).to(
             self.device
         )
-
         state_current_features_batch = torch.stack([torch.from_numpy(item) for item in state_current_features]).to(
             self.device
         )
 
         next_state_boards_batch = torch.stack([torch.from_numpy(item) for item in next_state_boards]).to(self.device)
-
         next_state_temporal_features_batch = torch.stack(
             [torch.from_numpy(item) for item in next_state_temporal_features]
         ).to(self.device)
-
         next_state_current_features_batch = torch.stack(
             [torch.from_numpy(item) for item in next_state_current_features]
         ).to(self.device)
@@ -184,13 +206,15 @@ class CLDDAgent(TetrisAgent):
         reward_batch = torch.tensor(batch[3], dtype=torch.float32, device=self.device)
         done_batch = torch.tensor(batch[4], dtype=torch.bool, device=self.device)
 
+        # Convert weights to tensor
+        weights = torch.tensor(weights, dtype=torch.float32, device=self.device)
+
         # Compute Q(s_t, a) - the model computes Q(s_t), then we select the columns of actions taken
         state_action_values = self.policy_net(
             (state_boards_batch, state_temporal_features_batch, state_current_features_batch)
         ).gather(1, action_batch)
 
         # Compute V(s_{t+1}) for all next states using Double DQN
-
         with torch.no_grad():
             # Use policy net to select action
             next_state_actions = (
@@ -201,54 +225,41 @@ class CLDDAgent(TetrisAgent):
                 .unsqueeze(1)
             )
 
-            # Use target net to evaluate action
-            next_state_values = torch.zeros(self.config.BATCH_SIZE, device=self.device)
-            non_final_mask = ~done_batch
-            if non_final_mask.sum() > 0:
-                next_state_values[non_final_mask] = (
-                    self.target_net(
-                        (
-                            next_state_boards_batch[non_final_mask],
-                            next_state_temporal_features_batch[non_final_mask],
-                            next_state_current_features_batch[non_final_mask],
-                        )
-                    )
-                    .gather(1, next_state_actions[non_final_mask])
-                    .squeeze(1)
-                )
+            # Use target net to evaluate the action
+            next_state_values = self.target_net(
+                (next_state_boards_batch, next_state_temporal_features_batch, next_state_current_features_batch)
+            ).gather(1, next_state_actions)
+
+            next_state_values[done_batch] = 0.0
 
         # Compute the expected Q values
-        expected_state_action_values = reward_batch + (self.config.GAMMA**self.config.N_STEP) * next_state_values
+        expected_state_action_values = (next_state_values * self.config.GAMMA) + reward_batch.unsqueeze(1)
 
         # Compute Huber loss
-        loss = F.smooth_l1_loss(state_action_values.squeeze(), expected_state_action_values)
+        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values, reduction="none")
+
+        # Weight the loss by importance sampling weights
+        weighted_loss = (loss * weights.unsqueeze(1)).mean()
 
         # Optimize the model
         self.optimizer.zero_grad()
-        loss.backward()
+        weighted_loss.backward()
 
         # Calculate gradient norm before clipping
-        grad_norm_before = CLDDAgent.compute_gradient_norm(self.policy_net)
+        grad_norm_before = self.compute_gradient_norm(self.policy_net)
 
         torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), self.config.GRADIENT_CLIPPING)
 
         # Calculate gradient norm after clipping
-        grad_norm_after = CLDDAgent.compute_gradient_norm(self.policy_net)
+        grad_norm_after = self.compute_gradient_norm(self.policy_net)
 
         self.optimizer.step()
-        # for name, param in self.policy_net.named_parameters():
-        #     if param.grad is not None:
-        #         print(f"Gradient for {name}: {param.grad.abs().mean()}")
-        #     else:
-        #         print(f"No gradient for {name}")
 
-        # for name, param in self.target_net.named_parameters():
-        #     if param.grad is not None:
-        #         print(f"WARNING: Gradient in target network for {name}: {param.grad.abs().mean()}")
-        #     else:
-        #         print(f"No gradient for {name} in target network (expected)")
+        # Update priorities in the replay memory
+        td_errors = loss.detach().cpu().numpy()
+        self.memory.update_priorities(indices, td_errors)
 
-        return loss.item(), (grad_norm_before, grad_norm_after)
+        return weighted_loss.item(), (grad_norm_before, grad_norm_after)
 
     def update_target_network(self):
         self.target_net.load_state_dict(self.policy_net.state_dict())
