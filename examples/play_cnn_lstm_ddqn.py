@@ -10,9 +10,8 @@ from typing import cast
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
-from gym_simpletetris.tetris.tetris_shapes import ACTION_COMBINATIONS, simplify_board
+from gym_simpletetris.tetris.tetris_shapes import ACTION_COMBINATIONS
 from gym_simpletetris.tetris.tetris_env import TetrisEnv
-from utils.my_logging import LoggingManager
 from utils.config import load_config
 from agents.CNNLSTMDDQNAgent import CLDDAgent
 
@@ -36,9 +35,8 @@ def play(config_path, model_path):
     )
 
     # Initialize networks
-    next_board, next_info = env.reset()
-    next_board_simple = simplify_board(next_board)
-
+    _, next_info = env.reset()
+    next_board_simple = next_info["simple_board"]
     agent = CLDDAgent(
         next_board_simple,
         env.action_space,
@@ -67,9 +65,9 @@ def play(config_path, model_path):
                 env.total_steps,
             )
 
-            next_board, step_reward, terminated, truncated, next_info = env.step(ACTION_COMBINATIONS[selected_action])
+            _, step_reward, terminated, truncated, next_info = env.step(ACTION_COMBINATIONS[selected_action])
+            next_board_simple = next_info["simple_board"]
 
-            next_board_simple = simplify_board(next_board)
             next_temporal_feature = extract_temporal_feature(next_info)
             next_feature = extract_current_feature(board_simple, next_info)
 
@@ -95,7 +93,7 @@ def play(config_path, model_path):
 
 
 if __name__ == "__main__":
-    config_path = r"tetris-ai-models\config\train_cnn_gru_dqn.yaml"
-    model_path = r"E:\Projects\AI stuff\Tetris\tetrais\outputs\cnn_lstm_double_dqn_20241003_185806\models\cnn_lstm_double_dqn_final.pth"
-
-    play(config_path, model_path)
+    config_path = r"tetris-ai-models\config\train_cnn_lstm_ddqn.yaml"
+    model_path_str = r"outputs\cnn_lstm_double_dqn_20241004_122748\models\cnn_lstm_double_dqn_final.pth"
+    # model_path_str = None
+    play(config_path, model_path_str)

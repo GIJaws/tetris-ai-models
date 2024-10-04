@@ -40,7 +40,7 @@ def train(config_path, model_path=None):
         ),
     )
 
-    board, next_info = env.reset()
+    _, next_info = env.reset()
     board_simple = next_info["simple_board"]
 
     agent = CLDDAgent(
@@ -64,7 +64,7 @@ def train(config_path, model_path=None):
             cur_episode_steps: int = 0
             episode_cumulative_reward: float = 0.0
 
-            next_board, next_info = env.reset()
+            _, next_info = env.reset()
 
             next_board_simple = next_info["simple_board"]
             next_temporal_feature = extract_temporal_feature(next_info)
