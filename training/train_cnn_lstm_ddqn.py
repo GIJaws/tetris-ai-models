@@ -137,6 +137,7 @@ def train(config_path, model_path=None):
                     ),
                     step_reward,
                     done,
+                    done or info["lost_a_life"],
                 )
                 chicken_line_sum += info["lines_cleared_per_step"]
                 logger.log_every_step(total_steps=env.total_steps, info=next_info, chicken_line_sum=chicken_line_sum)
@@ -183,7 +184,6 @@ def train(config_path, model_path=None):
 
 if __name__ == "__main__":
     config_path = r"tetris-ai-models\config\train_cnn_lstm_ddqn.yaml"
-    model_path_str = (
-        None if r"outputs\cnn_lstm_double_dqn_20241003_182721\models\cnn_lstm_double_dqn_episode_200.pth" else None
-    )
+    # model_path_str = r"outputs\cnn_lstm_double_dqn_20241003_225218\models\cnn_lstm_double_dqn_final.pth"
+    model_path_str = None
     train(config_path, model_path_str)

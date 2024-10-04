@@ -12,7 +12,7 @@ class TetrisAgent(ABC):
         pass
 
     @abstractmethod
-    def update(self, state, action, next_state, reward, done):
+    def update(self, state, action, next_state, reward, done, lost_a_life=False):
         pass
 
     @abstractmethod

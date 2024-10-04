@@ -37,7 +37,14 @@ class CLDDAgent(TetrisAgent):
                 lr=float(self.config.LEARNING_RATE),
                 weight_decay=float(self.config.WEIGHT_DECAY),
             )
+        # Set target network to eval mode and freeze its parameters
         self.target_net.eval()
+        for param in self.target_net.parameters():
+            param.requires_grad = False
+        print("Policy net requires_grad:", all(p.requires_grad for p in self.policy_net.parameters()))
+        print("Target net requires_grad:", all(p.requires_grad for p in self.target_net.parameters()))
+        print("Policy net training:", self.policy_net.training)
+        print("Target net training:", self.target_net.training)
 
         self.memory = NStepReplayMemory(self.config.MEMORY_SIZE, n_step=self.config.N_STEP, gamma=self.config.GAMMA)
 
@@ -71,7 +78,7 @@ class CLDDAgent(TetrisAgent):
         )
         return selected_action, (policy_action, eps_threshold, (q_values, double_q_value), is_random_action)
 
-    def update(self, state, action, next_state, reward, done):
+    def update(self, state, action, next_state, reward, done, lost_a_life=False):
 
         _, _, feature = state
         next_board, next_temporal_feature, next_feature = next_state
@@ -92,7 +99,7 @@ class CLDDAgent(TetrisAgent):
             torch.tensor([action], device=self.device, dtype=torch.long),
             (next_board_deque, next_temporal_features, next_feature),
             reward,
-            done,
+            done or lost_a_life,
         )
 
     def load_model(self, path: str):
@@ -229,6 +236,17 @@ class CLDDAgent(TetrisAgent):
         grad_norm_after = CLDDAgent.compute_gradient_norm(self.policy_net)
 
         self.optimizer.step()
+        # for name, param in self.policy_net.named_parameters():
+        #     if param.grad is not None:
+        #         print(f"Gradient for {name}: {param.grad.abs().mean()}")
+        #     else:
+        #         print(f"No gradient for {name}")
+
+        # for name, param in self.target_net.named_parameters():
+        #     if param.grad is not None:
+        #         print(f"WARNING: Gradient in target network for {name}: {param.grad.abs().mean()}")
+        #     else:
+        #         print(f"No gradient for {name} in target network (expected)")
 
         return loss.item(), (grad_norm_before, grad_norm_after)
 

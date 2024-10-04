@@ -184,9 +184,6 @@ def calculate_rewards(
 
     # Determine if the player lost a life
     # TODO make this more robust and check if logic is broken elsewhere
-    lost_a_life = prev_stats.get("lives_left", 0) > current_stats.get("lives_left", 0) or prev_stats.get(
-        "deaths", 0
-    ) < current_stats.get("deaths", 0)
 
     piece_threshold = 20
 
@@ -242,18 +239,18 @@ def calculate_rewards(
         scaled_penalties["game_over_penalty"] = -1
         unscaled_penalties["game_over_penalty"] = -1
 
-    if lost_a_life:
+    if info["lost_a_life"]:
         scaled_penalties["lost_a_life"] = -0.9
         unscaled_penalties["lost_a_life"] = -0.9
 
+    death = info["lost_a_life"] or game_over or info["game_over"]
+
+    max_penalty = -1 if death else -0.8
     # Combine scaled rewards and penalties
     total_scaled_rewards: float = sum(scaled_rewards.values())
-    total_scaled_penalties: float = sum(scaled_penalties.values())
+    total_scaled_penalties: float = max(sum(scaled_penalties.values()), max_penalty)
     total_unscaled_rewards: float = sum(unscaled_rewards.values())
     total_unscaled_penalties: float = abs(sum(unscaled_penalties.values())) * -1
-
-    if not lost_a_life or not game_over:
-        total_scaled_penalties: float = max(total_scaled_penalties, -0.8)
 
     # Update the result with the scaled values
     result["scaled_rewards_dict"] = scaled_rewards
@@ -266,7 +263,9 @@ def calculate_rewards(
     result["total_scaled_penalties"] = total_scaled_penalties
     result["total_unscaled_penalties"] = total_unscaled_penalties
 
-    result["total_scaled_rewards+penalties"] = total_scaled_rewards + total_scaled_penalties
+    result["total_scaled_rewards+penalties"] = (
+        total_scaled_rewards + total_scaled_penalties if not death else total_scaled_penalties
+    )
     result["total_unscaled_rewards+penalties"] = total_unscaled_rewards + total_unscaled_penalties
 
     return result
@@ -322,7 +321,7 @@ def extract_temporal_feature(info):
         held_piece = SHAPE_NAMES.index(held_piece)
 
     # TODO make the number of next pieces configurable instead of fixed at 4
-    num_next_pieces = 4
+    num_next_pieces = 1
     next_pieces = info.get("next_piece", [])[:num_next_pieces]  # Get up to num_next_pieces next pieces
     next_pieces = [SHAPE_NAMES.index(piece) for piece in next_pieces]
     next_pieces = next_pieces + [-99] * (num_next_pieces - len(next_pieces))
