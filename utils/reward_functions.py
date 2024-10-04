@@ -193,7 +193,8 @@ def calculate_rewards(
     unscaled_penalties: dict[str, float] = {
         "height_penalty": max_height * (max_height >= 14),
         "hole_penalty": info["holes"],
-        "piece_timer": info["piece_timer"] * (info["piece_timer"] >= piece_threshold),
+        # "piece_timer": info["piece_timer"] * (info["piece_timer"] >= piece_threshold),
+        "is_not_finesse": not info["is_finesse"],
         "held_penalty": held_penalty,
         "hole_increase": info["holes"] > info["old_holes"],
     }
@@ -206,9 +207,11 @@ def calculate_rewards(
     penalty_boundaries: dict[str, tuple[float, float]] = {
         "height_penalty": (0, 20),
         "hole_penalty": (0, 200),
-        "piece_timer": (0, piece_threshold * 10),
+        # "piece_timer": (0, piece_threshold * 10),
+        "is_not_finesse": (0, 10),
         "held_penalty": (0, 16),  # actually (0, 1) but this makes it 1/16 instead of 1 when true
-        "hole_increase": (0, 4),  # ^^^
+        # "hole_increase": (0, 4),  # ^^^
+        "hole_increase": (0, 12),  # TODO should I make the penalty 1/12 instead of 1/4
     }
 
     reward_boundaries: dict[str, tuple[float, float]] = {

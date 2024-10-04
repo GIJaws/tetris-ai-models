@@ -168,7 +168,7 @@ class CLDDAgent(TetrisAgent):
         self.board_state_deque.extend(np.array([empty_state] * self.config.SEQUENCE_LENGTH))
 
         # Initialize temporal features
-        empty_temporal_features = np.zeros(len(self.temporal_features))
+        empty_temporal_features = np.zeros(len(self.temporal_features)) - 99
         self.temporal_features_deque.clear()
         self.temporal_features_deque.extend(np.array([empty_temporal_features] * self.config.SEQUENCE_LENGTH))
 
