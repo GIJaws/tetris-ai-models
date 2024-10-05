@@ -1,11 +1,11 @@
-MODEL_NAME: cnn_lstm_double_dqn
+MODEL_NAME: cnn_lstm_double_dqn_pretrained
 
 # Hyperparameters
 BATCH_SIZE: 512
 GAMMA: 0.99
 EPS_START: 1
 EPS_END: 0.01
-EPS_DECAY: 5000
+EPS_DECAY: 2000
 TARGET_UPDATE: 20
 MEMORY_SIZE: 10000000
 LEARNING_RATE: 1e-4

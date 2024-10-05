@@ -85,7 +85,7 @@ def calculate_board_statistics(board, info):
         "max_height": np.max(info["heights"]),
         "avg_height": np.mean(info["heights"]),
         "min_height": np.min(info["heights"]),
-        "info": info["heights"].tolist(),
+        "info": info["heights"],
         "bumpiness": np.sum(np.abs(np.diff(info["heights"]))),
         "density": np.sum(board) / (board.shape[0] * board.shape[1]),
         "max_height_density": np.sum(board) / max(1, (board.shape[0] * np.max(info["heights"]))),
@@ -100,6 +100,8 @@ def calculate_board_statistics(board, info):
         "hold_used": info["hold_used"],
         "current_piece_coords": info["current_piece_coords"],
         "ghost_piece_coords": info["ghost_piece_coords"],
+        "is_current_finesse": info["is_current_finesse"],
+        "is_finesse_complete": info["is_finesse_complete"],
     }
 
 
@@ -185,37 +187,39 @@ def calculate_rewards(
     # Determine if the player lost a life
     # TODO make this more robust and check if logic is broken elsewhere
 
-    piece_threshold = 20
+    # piece_threshold = 20
 
-    max_height = current_stats.get("max_height", 0)
+    # max_height = current_stats.get("max_height", 0)
 
     # Raw penalties and rewards
     unscaled_penalties: dict[str, float] = {
-        "height_penalty": max_height * (max_height >= 14),
+        # "height_penalty": max_height * (max_height >= 17),
         "hole_penalty": info["holes"],
         # "piece_timer": info["piece_timer"] * (info["piece_timer"] >= piece_threshold),
-        "is_not_finesse": not info["is_finesse"],
+        "is_not_finesse": not info["is_current_finesse"],
         "held_penalty": held_penalty,
         "hole_increase": info["holes"] > info["old_holes"],
-    }
-
-    unscaled_rewards: dict[str, float] = {
-        "lines_cleared_per_step": 8.0 * lines_cleared,
+        "time_penalty": 1 / max(info.get("time", 1) - 250, 1),
     }
 
     # Penalty boundaries (min, max)  # Assuming board is 10*20
     penalty_boundaries: dict[str, tuple[float, float]] = {
-        "height_penalty": (0, 20),
-        "hole_penalty": (0, 200),
+        # "height_penalty": (0, 20),
+        "hole_penalty": (0, 300),  # ? actually max is 200 but scaling with this
         # "piece_timer": (0, piece_threshold * 10),
-        "is_not_finesse": (0, 10),
-        "held_penalty": (0, 16),  # actually (0, 1) but this makes it 1/16 instead of 1 when true
-        # "hole_increase": (0, 4),  # ^^^
-        "hole_increase": (0, 12),  # TODO should I make the penalty 1/12 instead of 1/4
+        "is_not_finesse": (0, 6),
+        "held_penalty": (0, 6),  # actually (0, 1) but this makes it 1/16 instead of 1 when true
+        "hole_increase": (0, 6),
+        "time_penalty": (0, 6),
     }
 
+    unscaled_rewards: dict[str, float] = {
+        "lines_cleared_per_step": 8.0 * lines_cleared,
+        "hole_decrease": info["holes"] < info["old_holes"],
+    }
     reward_boundaries: dict[str, tuple[float, float]] = {
         "lines_cleared_per_step": (0, 32),
+        "hole_decrease": (0, 12),
         # "lines_cleared": (0, 32),
     }
 
@@ -364,6 +368,7 @@ def extract_current_feature(board_simple, info):
         "holes": info["holes"] / 200,
         "agg_height": np.sum(info["heights"]) / 200,
         "hold_used": info["hold_used"],
+        "time": 1 / max(info.get("time", 1), 1),
         # "bumpiness": np.sum(np.abs(np.diff(info["heights"]))) / 200,
         # "score": info.get("score", 0),
         # **{f"ghost_piece_x_coords_{i}": x / 10 for i, (x, y) in enumerate(info["ghost_piece_coords"])},

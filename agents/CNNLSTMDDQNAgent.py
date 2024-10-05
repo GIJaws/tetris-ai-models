@@ -132,19 +132,14 @@ class CLDDAgent(TetrisAgent):
         checkpoint = torch.load(path, map_location=self.device)
         self.policy_net.load_state_dict(checkpoint["policy_net"])
         self.target_net.load_state_dict(checkpoint["target_net"])
+        self.optimizer = optim.Adam(
+            self.policy_net.parameters(),
+            lr=float(self.config.LEARNING_RATE),
+            weight_decay=float(self.config.WEIGHT_DECAY),
+        )
         if "optimizer" in checkpoint:
-            self.optimizer = optim.Adam(
-                self.policy_net.parameters(),
-                lr=float(self.config.LEARNING_RATE),
-                weight_decay=float(self.config.WEIGHT_DECAY),
-            )
             self.optimizer.load_state_dict(checkpoint["optimizer"])
-        else:
-            self.optimizer = optim.Adam(
-                self.policy_net.parameters(),
-                lr=float(self.config.LEARNING_RATE),
-                weight_decay=float(self.config.WEIGHT_DECAY),
-            )
+
         print(f"Model loaded from {path}")
 
     def save_model(self, path: str):

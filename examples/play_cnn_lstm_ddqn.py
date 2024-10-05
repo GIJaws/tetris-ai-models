@@ -29,7 +29,7 @@ def play(config_path, model_path):
         gym.make(
             config.ENV_ID,
             render_mode="human",
-            initial_level=0,
+            initial_level=1,
             num_lives=10000000000000000000000000000000000,
         ),
     )
@@ -94,6 +94,6 @@ def play(config_path, model_path):
 
 if __name__ == "__main__":
     config_path = r"tetris-ai-models\config\train_cnn_lstm_ddqn.yaml"
-    model_path_str = r"outputs\cnn_lstm_double_dqn_20241004_122748\models\cnn_lstm_double_dqn_final.pth"
+    model_path_str = r"outputs\cnn_lstm_double_dqn_20241004_223503\models\cnn_lstm_double_dqn_episode_3500.pth"
     # model_path_str = None
     play(config_path, model_path_str)

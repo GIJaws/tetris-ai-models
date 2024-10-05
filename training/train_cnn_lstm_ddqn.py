@@ -183,7 +183,7 @@ def train(config_path, model_path=None):
 
 
 if __name__ == "__main__":
-    config_path = r"tetris-ai-models\config\train_cnn_lstm_ddqn.yaml"
-    # model_path_str = r"outputs\cnn_lstm_double_dqn_20241003_225218\models\cnn_lstm_double_dqn_final.pth"
-    model_path_str = None
+    config_path = r"tetris-ai-models\config\train_cnn_lstm_ddqn_pre_trained.yaml"
+    model_path_str = r"outputs\cnn_lstm_double_dqn_20241005_010307\models\cnn_lstm_double_dqn_final.pth"
+    # model_path_str = None
     train(config_path, model_path_str)
