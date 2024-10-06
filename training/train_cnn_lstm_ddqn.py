@@ -40,6 +40,18 @@ def train(config_path, model_path=None):
         ),
     )
 
+    # env: TetrisEnv = cast(
+    #     TetrisEnv,
+    #     # Automate video recording
+    #     gym.make(
+    #         config.ENV_ID,
+    #         # render_mode=config.RENDER_MODE,
+    #         render_mode="human",
+    #         initial_level=config.INITIAL_LEVEL,
+    #         num_lives=config.NUM_LIVES,
+    #     ),
+    # )
+
     _, next_info = env.reset()
     board_simple = next_info["simple_board"]
 
@@ -103,19 +115,21 @@ def train(config_path, model_path=None):
                     env.total_steps if config.OPTIMISE_EVERY_STEP else episode,
                 )
 
+                if is_random_action:
+                    # print(info["random_valid_move"])
+                    selected_action = info["random_valid_move"]
+
                 episode_q_values.append(step_q_values.cpu().numpy())
                 episode_double_q_values.append(step_double_q_value)
 
                 # TODO lets track the policy actions and the selected action instead of only the selected action
                 current_episode_action_count[selected_action] += 1
-                next_board, step_reward, terminated, truncated, next_info = env.step(
-                    ACTION_COMBINATIONS[selected_action]
-                )
+                _, step_reward, terminated, truncated, next_info = env.step(ACTION_COMBINATIONS[selected_action])
                 done = terminated or truncated
                 next_board_simple = next_info["simple_board"]
                 board_history.append(next_board_simple)
 
-                step_reward, extra_info = calculate_reward(board_history, done, next_info)
+                _, extra_info = calculate_reward(board_history, done, next_info)
                 next_info["extra_info"] = extra_info
 
                 next_temporal_feature = extract_temporal_feature(next_info)
@@ -183,7 +197,8 @@ def train(config_path, model_path=None):
 
 
 if __name__ == "__main__":
-    config_path = r"tetris-ai-models\config\train_cnn_lstm_ddqn_pre_trained.yaml"
-    model_path_str = r"outputs\cnn_lstm_double_dqn_20241005_010307\models\cnn_lstm_double_dqn_final.pth"
-    # model_path_str = None
+    config_path = r"tetris-ai-models\config\train_cnn_lstm_ddqn.yaml"
+    # model_path_str = r"outputs\cnn_lstm_double_dqn_20241006_011029\models\cnn_lstm_double_dqn_final.pth"
+    model_path_str = None
+
     train(config_path, model_path_str)

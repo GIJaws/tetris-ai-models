@@ -51,7 +51,9 @@ class CLDDAgent(TetrisAgent):
             n_step=self.config.N_STEP,
             gamma=self.config.GAMMA,
             alpha=self.config.PRIORITY_ALPHA,
-            beta=self.config.PRIORITY_BETA,
+            beta_start=self.config.PRIORITY_BETA_START,
+            beta_end=self.config.PRIORITY_BETA_END,
+            beta_annealing_steps=self.config.PRIORITY_BETA_ANNEALING_STEPS,
             epsilon=self.config.PRIORITY_EPSILON,
         )
 
@@ -251,7 +253,8 @@ class CLDDAgent(TetrisAgent):
         self.optimizer.step()
 
         # Update priorities in the replay memory
-        td_errors = loss.detach().cpu().numpy()
+        td_errors = (state_action_values - expected_state_action_values).detach().abs().squeeze(1).cpu().numpy()
+
         self.memory.update_priorities(indices, td_errors)
 
         return weighted_loss.item(), (grad_norm_before, grad_norm_after)

@@ -97,17 +97,31 @@ class NStepReplayMemory:
 
 
 class NStepPrioritizedReplayMemory:
-    def __init__(self, capacity, n_step, gamma, alpha=0.6, beta=0.4, epsilon=1e-6):
+    def __init__(
+        self,
+        capacity,
+        n_step,
+        gamma,
+        alpha=0.6,
+        beta_start=0.4,
+        beta_end=1.0,
+        beta_annealing_steps=100000,
+        epsilon=1e-6,
+    ):
         self.capacity = capacity
         self.n_step = n_step
         self.gamma = float(gamma)
         self.alpha = float(alpha)
-        self.beta = float(beta)
+        self.beta_start = float(beta_start)
+        self.beta_end = float(beta_end)
+        self.beta_annealing_steps = beta_annealing_steps
+        self.beta = self.beta_start
         self.epsilon = float(epsilon)
         self.memory = deque(maxlen=capacity)
         self.priorities = np.zeros((capacity,), dtype=np.float32)
         self.n_step_buffer = deque(maxlen=n_step)
         self.position = 0
+        self.step_count = 0
 
     def push(self, state, action, next_state, reward, done, td_error=None):
         """
@@ -149,14 +163,24 @@ class NStepPrioritizedReplayMemory:
                 self.memory.append(n_step_transition)
 
             # Set the initial priority of this transition
-            priority = 1.0 if td_error is None else (abs(float(td_error)) + self.epsilon) ** self.alpha
+            max_priority = self.priorities.max() if self.memory else 1.0
+            priority = max_priority if td_error is None else (abs(float(td_error)) + self.epsilon) ** self.alpha
+
+            # priority = 1.0 if td_error is None else (abs(float(td_error)) + self.epsilon) ** self.alpha
             self.priorities[self.position] = priority
 
             # Update the position
+            self.position = (self.position + 1) % self.capacity
+
+    def update_beta(self):
+        self.step_count += 1
+        progress = min(1.0, self.step_count / self.beta_annealing_steps)
+        self.beta = self.beta_start + (self.beta_end - self.beta_start) * progress
 
     def sample(self, batch_size):
+        self.update_beta()
         prios = self.priorities[: len(self.memory)]
-        probs = prios / prios.sum()
+        probs = prios / (prios.sum() + self.epsilon)
 
         indices = np.random.choice(len(self.memory), batch_size, p=probs)
         samples = [self.memory[idx] for idx in indices]

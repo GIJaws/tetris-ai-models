@@ -38,7 +38,7 @@ class ResizeVideoOutput(gym.Wrapper):
         # ! WRAPPER FOR THE REWARD FUNCTION STUFF AND KEEP THIS JUST FOR VIDEO OUTPUT, CAN PUT THE REQUIRED INFO IN
         # !  THE INFO dict
         self.actions = action
-        obs, reward, terminated, truncated, info = self.env.step(action)
+        obs, og_reward, terminated, truncated, info = self.env.step(action)
         done = terminated or truncated
 
         # Update board and lines cleared history
@@ -46,11 +46,11 @@ class ResizeVideoOutput(gym.Wrapper):
         self.board_history.append(board_state)
 
         # Calculate custom reward
-        reward, self.extra_info = calculate_reward(self.board_history, done, info)
-        self.total_reward += reward
+        _, self.extra_info = calculate_reward(self.board_history, done, info)
+        self.total_reward += og_reward
         info["extra_info"] = self.extra_info
 
-        return obs, reward, terminated, truncated, info
+        return obs, og_reward, terminated, truncated, info
 
     def reset(self, **kwargs):
         self.total_reward = 0
@@ -61,7 +61,7 @@ class ResizeVideoOutput(gym.Wrapper):
 
     def render(self, mode="rgb_array", **kwargs):
         frame = self.env.render(**kwargs)
-        font_scale = 1.5
+        font_scale = 1.2
         if mode == "rgb_array":
             # Ensure frame is in the correct format (convert to numpy array if it's not)
             if not isinstance(frame, np.ndarray):
@@ -188,11 +188,11 @@ class LoggingManager:
         extra_info = info["extra_info"]
 
         for k, v in iterate_nested_dict(extra_info["current_stats"]):
-            if isinstance(v, (list, tuple)):
+            if isinstance(v, (list, tuple, np.ndarray, str)) or v is None:
                 continue
             self.writer.add_scalar(f"StepsStats/{k}", v, total_steps)
 
-        for k, v in iterate_nested_dict(extra_info["rewards"]):
+        for k, v in iterate_nested_dict(extra_info.get("rewards", {})):
             self.writer.add_scalar(f"StepRewards/{k}", v, total_steps)
 
         self.writer.add_scalar("ChickenLineSum", chicken_line_sum, total_steps)

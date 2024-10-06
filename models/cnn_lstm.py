@@ -28,7 +28,7 @@ class CNNLSTM(nn.Module):
         self.bn1 = nn.BatchNorm2d(self.conv1.out_channels)
         self.dropout1 = nn.Dropout2d(p=0.0)
 
-        self.conv2 = nn.Conv2d(self.conv1.out_channels, 64, kernel_size=5, stride=2, padding=1)
+        self.conv2 = nn.Conv2d(self.conv1.out_channels, 64, kernel_size=4, stride=1, padding=1)
         self.bn2 = nn.BatchNorm2d(self.conv2.out_channels)
         self.dropout2 = nn.Dropout2d(p=0.2)
 
@@ -44,7 +44,7 @@ class CNNLSTM(nn.Module):
         self.lstm_input_size = self.conv_out_size + len(self.temporal_features)
 
         self.lstm = nn.LSTM(
-            input_size=self.lstm_input_size, hidden_size=256, num_layers=3, batch_first=True, dropout=0.2
+            input_size=self.lstm_input_size, hidden_size=128, num_layers=5, batch_first=True, dropout=0.2
         )
         self.lstm_out_size = self.lstm.hidden_size
 
@@ -62,10 +62,10 @@ class CNNLSTM(nn.Module):
         """
         fc_input_size = self.lstm_out_size + len(self.current_features)
 
-        self.fc1 = nn.Linear(fc_input_size, 256)
+        self.fc1 = nn.Linear(fc_input_size, 64)
+        self.dropout = nn.Dropout(p=0.2)
 
         self.fc2 = nn.Linear(self.fc1.out_features, self.n_actions)
-        self.dropout = nn.Dropout(p=0.0)
 
     def forward(self, x):
         """
