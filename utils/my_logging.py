@@ -10,8 +10,8 @@ import gymnasium as gym
 from gymnasium.wrappers import RecordVideo
 import cv2
 from collections import deque
-from gym_simpletetris.tetris.helpful_utils import format_value, iterate_nested_dict
-from gym_simpletetris.tetris.tetris_shapes import simplify_board, BASIC_ACTIONS, ACTION_COMBINATIONS
+from gym_simpletetris.utils.helpful_utils import format_value, iterate_nested_dict
+from gym_simpletetris.core.game_actions import GameAction
 from utils.reward_functions import calculate_reward
 
 
@@ -42,11 +42,11 @@ class ResizeVideoOutput(gym.Wrapper):
         done = terminated or truncated
 
         # Update board and lines cleared history
-        board_state = simplify_board(obs)
+        board_state = info["game_state"].board.grid
         self.board_history.append(board_state)
 
         # Calculate custom reward
-        _, self.extra_info = calculate_reward(self.board_history, done, info)
+        # _, self.extra_info = calculate_reward(self.board_history, done, info)
         self.total_reward += og_reward
         info["extra_info"] = self.extra_info
 
@@ -110,7 +110,7 @@ class ResizeVideoOutput(gym.Wrapper):
                     2,
                 )
                 foo += 30
-            actions_str = "\n".join([BASIC_ACTIONS[act] for act in self.actions])
+            actions_str = ", ".join(act.__name__ for act in GameAction.from_index(*self.actions))
             cv2.putText(
                 frame,
                 f"Action: {actions_str}",
@@ -322,7 +322,9 @@ class LoggingManager:
 
         for action, count in action_count.items():
             frequency = count / total_actions
-            action_str = BASIC_ACTIONS.get(action, ACTION_COMBINATIONS[action])
+            # action_str = GameAction.from_index(action).action_class.__name__
+            action_str = ", ".join(act.__name__ for act in GameAction.from_index(action))
+
             self.writer.add_scalar(f"Actions/{action}: {action_str}", frequency, episode)
 
     def log_hardware_usage_tensorboard(self, episode: int):

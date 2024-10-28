@@ -10,8 +10,10 @@ from typing import cast
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
-from gym_simpletetris.tetris.tetris_shapes import ACTION_COMBINATIONS
-from gym_simpletetris.tetris.tetris_env import TetrisEnv
+from gym_simpletetris.env import TetrisEnv
+from gym_simpletetris.core.game_actions import GameAction
+
+
 from utils.my_logging import LoggingManager
 from utils.config import load_config
 from agents.CNNLSTMDDQNAgent import CLDDAgent
@@ -32,7 +34,12 @@ def train(config_path, model_path=None):
         logger.setup_video_recording(  # Automate video recording
             gym.make(
                 config.ENV_ID,
+                width=config.WIDTH,
+                height=config.HEIGHT,
+                buffer_height=config.BUFFER_HEIGHT,
+                visible_height=config.VISIBLE_HEIGHT,
                 render_mode=config.RENDER_MODE,
+                obs_type=config.OBSERVATION_TYPE,
                 initial_level=config.INITIAL_LEVEL,
                 num_lives=config.NUM_LIVES,
             ),
@@ -40,26 +47,14 @@ def train(config_path, model_path=None):
         ),
     )
 
-    # env: TetrisEnv = cast(
-    #     TetrisEnv,
-    #     # Automate video recording
-    #     gym.make(
-    #         config.ENV_ID,
-    #         # render_mode=config.RENDER_MODE,
-    #         render_mode="human",
-    #         initial_level=config.INITIAL_LEVEL,
-    #         num_lives=config.NUM_LIVES,
-    #     ),
-    # )
-
     _, next_info = env.reset()
-    board_simple = next_info["simple_board"]
+    board_simple = next_info["game_state"].board.grid
 
     agent = CLDDAgent(
         board_simple,
         env.action_space,
         extract_temporal_feature(next_info),
-        extract_current_feature(board_simple, next_info),
+        extract_current_feature(next_info),
         config,
         device,
         model_path=model_path,
@@ -78,11 +73,11 @@ def train(config_path, model_path=None):
 
             _, next_info = env.reset()
 
-            next_board_simple = next_info["simple_board"]
+            next_board_simple = next_info["game_state"].board.grid
             next_temporal_feature = extract_temporal_feature(next_info)
-            next_feature = extract_current_feature(board_simple, next_info)
+            next_feature = extract_current_feature(next_info)
 
-            current_episode_action_count = {action: 0 for action in ACTION_COMBINATIONS.keys()}
+            current_episode_action_count = {action.index: 0 for action in GameAction}
 
             agent.reset()
             board_history = [board_simple]
@@ -115,46 +110,46 @@ def train(config_path, model_path=None):
                     env.total_steps if config.OPTIMISE_EVERY_STEP else episode,
                 )
 
-                if is_random_action:
-                    # print(info["random_valid_move"])
-                    selected_action = info["random_valid_move"]
+                # if is_random_action:
+                #     # print(info["random_valid_move"])
+                #     selected_action = info["random_valid_move"]
 
                 episode_q_values.append(step_q_values.cpu().numpy())
                 episode_double_q_values.append(step_double_q_value)
 
                 # TODO lets track the policy actions and the selected action instead of only the selected action
                 current_episode_action_count[selected_action] += 1
-                _, step_reward, terminated, truncated, next_info = env.step(ACTION_COMBINATIONS[selected_action])
+                _, step_reward, terminated, truncated, next_info = env.step([selected_action])
                 done = terminated or truncated
-                next_board_simple = next_info["simple_board"]
+                next_board_simple = next_info["game_state"].board.grid
                 board_history.append(next_board_simple)
 
-                _, extra_info = calculate_reward(board_history, done, next_info)
-                next_info["extra_info"] = extra_info
+                # _, extra_info = calculate_reward(board_history, done, next_info)
+                # next_info["extra_info"] = extra_info
 
                 next_temporal_feature = extract_temporal_feature(next_info)
-                next_feature = extract_current_feature(next_board_simple, next_info)
+                next_feature = extract_current_feature(next_info)
 
                 episode_cumulative_reward += step_reward
 
                 agent.update(
                     (
-                        info["float_board_state"],
+                        info["game_state"].place_current_piece().board.grid,
                         np.array(list(temporal_feature.values())),
                         np.array(list(feature.values())),
                     ),
                     selected_action,
                     (
-                        next_info["float_board_state"],
+                        next_info["game_state"].place_current_piece().board.grid,
                         np.array(list(next_temporal_feature.values())),
                         np.array(list(next_feature.values())),
                     ),
                     step_reward,
                     done,
-                    done or info["lost_a_life"],
+                    done,
                 )
-                chicken_line_sum += info["lines_cleared_per_step"]
-                logger.log_every_step(total_steps=env.total_steps, info=next_info, chicken_line_sum=chicken_line_sum)
+                chicken_line_sum += info["game_state"].step_lines_cleared
+                # logger.log_every_step(total_steps=env.total_steps, info=next_info, chicken_line_sum=chicken_line_sum)
                 if config.OPTIMISE_EVERY_STEP:
                     loss, grad_norms = agent.optimize_model()
 
@@ -170,7 +165,7 @@ def train(config_path, model_path=None):
                 episode,
                 episode_cumulative_reward,
                 cur_episode_steps,
-                info["total_lines_cleared"],
+                info["game_state"].lines_cleared,
                 eps_threshold,
                 episode_q_values,
                 episode_double_q_values,

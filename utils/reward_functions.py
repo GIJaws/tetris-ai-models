@@ -2,7 +2,10 @@ from typing import cast
 from markdown.util import deprecated
 import numpy as np
 from scipy import ndimage
-from gym_simpletetris.tetris.tetris_shapes import SHAPE_NAMES, ACTION_COMBINATIONS
+
+from gym_simpletetris.core.tetris_engine import GameState
+from gym_simpletetris.core.pieces import PieceType
+from gym_simpletetris.core.game_actions import GameAction
 
 
 def calculate_reward(board_history, done, info) -> tuple[float, dict]:
@@ -16,7 +19,7 @@ def calculate_reward(board_history, done, info) -> tuple[float, dict]:
         float: Total reward.
         dict: Dictionary of detailed statistics and reward components.
     """
-    settled_board = info["settled_board"]
+    settled_board = info["game_state"].board.grid
 
     # Calculate current board statistics
     current_stats = calculate_board_statistics(settled_board, info)
@@ -107,48 +110,6 @@ def calculate_board_statistics(board, info):
         "held_piece_name": info["held_piece_name"],
         "holes": info["holes"],
         "current_piece": info["current_piece"],
-    }
-
-
-@deprecated("")
-def calculate_board_inputs(board, info, num_actions=2):  # TODO move this function to somewhere more relevant
-    """Calculate detailed statistics for a given board state. Used for model input."""
-    heights = info["heights"]
-    actions: list[int] = get_all_actions(info)
-
-    padded_actions = actions[:num_actions] + [-99] * (
-        num_actions - len(actions)
-    )  # TODO make this the same as the SEQUENCE_LENGTH
-
-    # Use -99 as a default value for both x and y anchors
-    anchor = info.get("anchor", (-99, -99))
-
-    current_piece = info.get("current_piece", None)
-    current_piece = SHAPE_NAMES.index(current_piece) if current_piece is not None else -99
-
-    held_piece = info.get("held_piece_name", None)
-    held_piece = SHAPE_NAMES.index(held_piece) if held_piece is not None else -99
-
-    next_pieces = info.get("next_piece", [])[:4]
-
-    next_pieces = [SHAPE_NAMES.index(piece) for piece in next_pieces]
-
-    padding = [-99] * (4 - len(next_pieces))
-
-    next_pieces = next_pieces + padding
-
-    return {
-        "holes": info["holes"],
-        "bumpiness": np.sum(np.abs(np.diff(heights))),
-        "lines_cleared": info.get("lines_cleared_per_step", 0),
-        # "score": info.get("score", 0),
-        "x_anchor": anchor[0],
-        "y_anchor": anchor[1],
-        **{f"col_{i}_height": h for i, h in enumerate(heights)},
-        "current_piece": current_piece,
-        **{f"next_piece_{i}": piece for i, piece in enumerate(next_pieces)},
-        "held_piece": held_piece,
-        **{f"prev_actions_{i}": act for i, act in enumerate(padded_actions)},
     }
 
 
@@ -338,59 +299,50 @@ def remove_floating_blocks(board):
 
 def extract_temporal_feature(info):
     """
-    Extract temporal features from the game info.
+    Extract temporal features from the GameState.
 
-    :param info: Dictionary containing game state information
     :return: Dict of temporal feature values
     """
-    held_piece = info.get("held_piece_name", None)
-    if held_piece:
-        held_piece = SHAPE_NAMES.index(held_piece)
 
-    # TODO make the number of next pieces configurable instead of fixed at 4
+    game_state = cast(GameState, info["game_state"])
+    held_piece = game_state.held_piece
+    held_piece_index = PieceType.piece_names().index(held_piece.name) if held_piece else -99
+
     num_next_pieces = 1
-    next_pieces = info.get("next_piece", [])[:num_next_pieces]  # Get up to num_next_pieces next pieces
-    next_pieces = [SHAPE_NAMES.index(piece) for piece in next_pieces]
-    next_pieces = next_pieces + [-99] * (num_next_pieces - len(next_pieces))
+    next_pieces = [piece.name for piece in game_state.next_pieces[:num_next_pieces]]
+    next_pieces_indices = [PieceType.piece_names().index(piece) for piece in next_pieces]
+    next_pieces_indices += [-99] * (num_next_pieces - len(next_pieces_indices))
+
+    current_piece = game_state.current_piece
 
     return {
-        # "x_anchor": x_anchor,
-        # "y_anchor": y_anchor,
-        # "current_piece": SHAPE_NAMES.index(current_piece),
-        # **{f"next_piece_{i}": piece for i, piece in enumerate(next_pieces)},
-        # "held_piece": held_piece or -99,
-        # **{f"cur_piece_x_coords_{i}": x / 10 for i, (x, y) in enumerate(info["current_piece_coords"])},
-        # **{f"cur_piece_y_coords_{i}": y / 20 for i, (x, y) in enumerate(info["current_piece_coords"])},
-        **{f"action_{action_name}": info["actions"][0] == action_name for action_name in ACTION_COMBINATIONS},
-        **{f"current_piece_{name}": next_pieces == name for name in SHAPE_NAMES},
+        **{f"action_{action.name}": game_state.info.get("actions", [None])[0] == action.name for action in GameAction},
+        **{f"current_piece_{name}": current_piece.name == name for name in PieceType.piece_names()},
         **{
-            f"next_piece_{i}_{name}": piece == SHAPE_NAMES.index(name)
-            for i, piece in enumerate(next_pieces)
-            for name in SHAPE_NAMES
+            f"next_piece_{i}_{name}": piece == PieceType.piece_names().index(name)
+            for i, piece in enumerate(next_pieces_indices)
+            for name in PieceType.piece_names()
         },
         **{
-            f"held_piece_{name}": held_piece == SHAPE_NAMES.index(name) if held_piece is not None else False
-            for name in SHAPE_NAMES
+            f"held_piece_{name}": held_piece_index == PieceType.piece_names().index(name)
+            for name in PieceType.piece_names()
         },
-        # "holes": info["holes"] / 200,
-        # "agg_height": np.sum(info["heights"]) / 200,
-        "hold_used": info["hold_used"],
-        "time": 1 / max(info.get("time", 1), 1),
+        "hold_used": game_state.hold_used,
+        "time": 1 / max(game_state.current_time, 1),
     }
 
 
-def extract_current_feature(board_simple, info):
+def extract_current_feature(info):
     """
     Extract current features from the simplified board and game info.
 
-    :param board_simple: Simplified representation of the Tetris board
     :param info: Dictionary containing game state information
     :return: Dict of current feature values
     """
-
+    game_state = cast(GameState, info["game_state"])
     return {
-        "holes": info["holes"] / 200,
-        "agg_height": np.sum(info["heights"]) / 200,
+        "holes": game_state.board.count_holes() / 200,
+        "agg_height": np.sum(game_state.board.get_column_heights()) / 200,
         # "hold_used": info["hold_used"],
         # "time": 1 / max(info.get("time", 1), 1),
         # "bumpiness": np.sum(np.abs(np.diff(info["heights"]))) / 200,

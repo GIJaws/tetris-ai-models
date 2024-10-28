@@ -1,7 +1,7 @@
 MODEL_NAME: cnn_lstm_double_dqn
 
 # Hyperparameters
-BATCH_SIZE: 1536
+BATCH_SIZE: 10
 GAMMA: 0.99
 EPS_START: 1
 EPS_END: 0.01
@@ -35,4 +35,12 @@ NUM_LIVES: 0
 
 # Tetris Env Settings
 ENV_ID: SimpleTetris-v0
+OBSERVATION_TYPE: rgb
 RENDER_MODE: rgb_array
+WIDTH: 10 # DEFAULT WIDTH OF THE PLAY FIELD
+HEIGHT: 20 # DEFAULT HEIGHT OF THE PLAY FIELD THE USER CAN SEE
+BUFFER_HEIGHT: 20 # DEFAULT BUFFER HEIGHT FOR THE PLAY FIELD
+
+# If the hardware permits, a sliver of the 21st row is shown to aid players manipulate the active
+#  piece in that area.
+VISIBLE_HEIGHT: 21

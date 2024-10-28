@@ -115,6 +115,7 @@ class CNNLSTM(nn.Module):
         return q_values
 
     def _process_cnn(self, x):
+        x = x.float()
         # x shape: [batch_size, sequence_length, height, width]
         batch_size = x.size(0)
         seq_len, height, width = x.size(1), x.size(2), x.size(3)
