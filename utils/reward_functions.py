@@ -8,7 +8,7 @@ from gym_simpletetris.core.pieces import PieceType
 from gym_simpletetris.core.game_actions import GameAction
 
 
-def calculate_reward(board_history, done, info) -> tuple[float, dict]:
+def calculate_reward(board_history, done) -> tuple[float, dict]:
     """
     Calculate the reward and detailed statistics based on the history of board states and lines cleared.
 
@@ -19,36 +19,39 @@ def calculate_reward(board_history, done, info) -> tuple[float, dict]:
         float: Total reward.
         dict: Dictionary of detailed statistics and reward components.
     """
-    settled_board = info["game_state"].board.grid
 
     # Calculate current board statistics
-    current_stats = calculate_board_statistics(settled_board, info)
+    current_stats = (board_history[-1], calculate_board_statistics(board_history[-1]))
 
     # Calculate previous board statistics (if available)
     # TODO implement penalty if spamming the same action or bad finness
-    # if len(board_history) > 1:
-    #     prev_stats = calculate_board_statistics(
-    #         info["prev_info"].get("settled_board", settled_board), info["prev_info"]
-    #     )
-    # else:
-    #     prev_stats = {
-    #         "lives_left": 0,
-    #         "deaths": 1,
-    #         "hold_used": False,
-    #     }
+    if len(board_history) > 1:
+        prev_stats = (board_history[-2], calculate_board_statistics(board_history[-2]))
+        held_penalty = board_history[-1][0].hold_used and board_history[-2][0].hold_used
 
-    # held_penalty = info["hold_used"] and prev_stats["hold_used"]
-
-    # Calculate rewards
-    # rewards = calculate_rewards(current_stats, prev_stats, info["lines_cleared_per_step"], done, held_penalty, info)
+        # Calculate rewards
+        rewards = calculate_rewards(current_stats, prev_stats, done, held_penalty)
+    else:
+        rewards = {
+            "scaled_rewards_dict": {},
+            "unscaled_rewards_dict": {},
+            "scaled_penalties_dict": {},
+            "unscaled_penalties_dict": {},
+            "total_scaled_rewards": 0.0,
+            "total_unscaled_rewards": 0.0,
+            "total_scaled_penalties": 0.0,
+            "total_unscaled_penalties": 0.0,
+            "total_scaled_rewards+penalties": 0.0,
+            "total_unscaled_rewards+penalties": 0.0,
+        }
 
     # Combine statistics and rewards
     extra_info = {
         "current_stats": current_stats,
-        # "rewards": rewards,
+        "rewards": rewards,
     }
 
-    return info["score"], extra_info
+    return rewards["total_scaled_rewards+penalties"], extra_info
 
 
 def get_all_actions(data, count=0, max_depth=10):
@@ -80,41 +83,39 @@ def get_all_actions(data, count=0, max_depth=10):
     return actions
 
 
-def calculate_board_statistics(board, info):
-    """Calculate detailed statistics for a given board state."""
+def calculate_board_statistics(state: tuple[GameState, dict]):
+    """Calculate detailed statistics for a given game state."""
+    game_state, info = state
+    board = game_state.board
+    heights = board.get_column_heights()
 
     return {
-        "time": info.get("time", 0),
-        "random_valid_move_str": info.get("random_valid_move_str", "null"),
-        # "max_height": np.max(info["heights"]),
-        "avg_height": np.mean(info["heights"]),
-        # "min_height": np.min(info["heights"]),
-        "heights": info["heights"],
-        "bumpiness": info["bumpiness"],
-        "density": np.sum(board) / (board.shape[0] * board.shape[1]),
-        "max_height_density": np.sum(board) / max(1, (board.shape[0] * np.max(info["heights"]))),
+        "time": game_state.current_time,
+        # "random_valid_move_str": game_state.info.get("random_valid_move_str", "null"),
+        "avg_height": np.mean(heights),
+        "heights": heights,
+        "bumpiness": board.calculate_bumpiness(),
+        "density": np.sum(board.grid) / (board.grid.shape[0] * board.grid.shape[1]),
+        "max_height_density": np.sum(board.grid) / max(1, (board.grid.shape[0] * np.max(heights))),
         "lives_left": info.get("lives_left", -1),
         "deaths": info.get("deaths", 1),
-        # "level": info.get("level", 1),
-        "gravity_timer": info.get("gravity_timer", 0),
-        "piece_timer": info.get("piece_timer", 0),
-        "gravity_interval": info.get("gravity_interval", 60),
-        # "anchor": info.get("anchor", (np.nan, np.nan)),
-        # "statistics": info["statistics"],
-        "hold_used": info["hold_used"],
-        "current_piece_coords": info["current_piece_coords"],
-        "ghost_piece_coords": info["ghost_piece_coords"],
-        "is_current_finesse": info["is_current_finesse"],
-        "is_finesse_complete": info["is_finesse_complete"],
-        "score": info["score"],
-        "held_piece_name": info["held_piece_name"],
-        "holes": info["holes"],
-        "current_piece": info["current_piece"],
+        "gravity_timer": game_state.gravity_timer,
+        "piece_timer": game_state.piece_timer,
+        "gravity_interval": game_state.gravity_interval,
+        "hold_used": game_state.hold_used,
+        # "current_piece_coords": game_state.current_piece.get_render_blocks(),
+        # "ghost_piece_coords": game_state.get_ghost_piece().get_render_blocks(),
+        # "is_current_finesse": game_state.info.get("is_current_finesse", False),
+        # "is_finesse_complete": game_state.info.get("is_finesse_complete", False),
+        "score": game_state.score,
+        "held_piece_name": game_state.held_piece.name if game_state.held_piece else None,
+        "holes": board.count_holes(),
+        "current_piece": game_state.current_piece.name,
     }
 
 
 def calculate_rewards(
-    current_stats, prev_stats, lines_cleared, game_over, held_penalty: bool, info
+    current_stats, prev_stats, game_over, held_penalty: bool
 ) -> dict[str, dict[str, int | float] | int | float]:
     """Calculate reward components based on current and previous statistics, with scaling.
 
@@ -129,6 +130,8 @@ def calculate_rewards(
     - total_rewards: the total of the scaled rewards
     - total_penalties: the total of the scaled penalties
     """
+    (game_state, info), current_stats = current_stats
+    (prev_game_state, prev_info), prev_stats = prev_stats
 
     if current_stats.get("max_height", 0) < 0 or current_stats.get("holes", 0) < 0:
         raise ValueError("Invalid values in current_stats")
@@ -149,7 +152,6 @@ def calculate_rewards(
         "total_scaled_rewards+penalties": 0.0,
         "total_unscaled_rewards+penalties": 0.0,
     }
-
     # Determine if the player lost a life
     # TODO make this more robust and check if logic is broken elsewhere
 
@@ -160,12 +162,13 @@ def calculate_rewards(
     # Raw penalties and rewards
     unscaled_penalties: dict[str, float] = {
         # "height_penalty": max_height * (max_height >= 17),
-        "hole_penalty": info["holes"],
+        "hole_penalty": game_state.board.count_holes(),
         # "piece_timer": info["piece_timer"] * (info["piece_timer"] >= piece_threshold),
-        "is_not_finesse": not info["is_current_finesse"],
+        # "is_not_finesse": not info["is_current_finesse"],
         "held_penalty": held_penalty,
-        "hole_increase": info["holes"] > info["old_holes"],
-        "time_penalty": 1 / max(cur_time - (180), 1),
+        "hole_increase": game_state.board.count_holes() > prev_game_state.board.count_holes(),
+        # "time_penalty": 1 / max(cur_time - (180), 1),
+        # TODO add penatly for pieces placed by gravity/lock timeout
     }
 
     # Penalty boundaries (min, max)  # Assuming board is 10*20
@@ -173,15 +176,15 @@ def calculate_rewards(
         # "height_penalty": (0, 20),
         # "piece_timer": (0, piece_threshold * 10),
         "hole_penalty": (0, 300),  # ? actually max is 200 but scaling with this
-        "is_not_finesse": (0, 12),
+        # "is_not_finesse": (0, 12),
         "held_penalty": (0, 12),  # actually (0, 1) but this makes it 1/16 instead of 1 when true
         "hole_increase": (0, 12),
-        "time_penalty": (0, 6),
+        # "time_penalty": (0, 6),
     }
 
     unscaled_rewards: dict[str, float] = {
-        "lines_cleared_per_step": 8.0 * lines_cleared,
-        "hole_decrease": info["holes"] < info["old_holes"],
+        "lines_cleared_per_step": 8.0 * game_state.step_lines_cleared,
+        "hole_decrease": game_state.board.count_holes() < prev_game_state.board.count_holes(),
         # "piece_place": info["piece_timer"] == 0 and cur_time > 1,
     }
     reward_boundaries: dict[str, tuple[float, float]] = {
@@ -217,7 +220,8 @@ def calculate_rewards(
     #     scaled_penalties["lost_a_life"] = -0.9
     #     unscaled_penalties["lost_a_life"] = -0.9
 
-    death = info["lost_a_life"] or game_over or info["game_over"]
+    death = game_over
+    # death = info["lost_a_life"] or game_over or info["game_over"]
 
     if death:
         if cur_time <= 100:
@@ -259,44 +263,6 @@ def calculate_rewards(
     return result
 
 
-# Helper functions (implement these based on your specific needs)
-def calculate_well_depth(board):
-    # Calculate the depth of wells (deep gaps between columns)
-    return 0  # TODO THIS IS A STUB
-
-
-@deprecated("this should already be in info")
-def remove_floating_blocks(board):
-    """
-    Removes floating blocks (including the falling piece) from the board.
-
-    Args:
-        board (np.ndarray): The simplified board (binary, 0 for empty, 1 for blocks).
-
-    Returns:
-        np.ndarray: Board with only settled pieces.
-    """
-    # Label connected components
-    labeled_board, num_features = ndimage.label(board)
-    # TODO Do we even need to use ndimage.label,
-    #  TODO pretty sure it shouldn't matter but should check when I'm not about to go to sleep
-
-    # Create a mask for settled pieces connected to the bottom
-    connected_to_bottom = np.zeros_like(board, dtype=bool)
-
-    # Check bottom row for pieces
-    bottom_labels = set(labeled_board[:, -1]) - {0}
-
-    # Mark all blocks with labels found in the bottom row
-    for label in bottom_labels:
-        connected_to_bottom |= labeled_board == label
-
-    # Use the mask to keep only settled blocks and remove floating ones
-    settled_board = board * connected_to_bottom
-
-    return settled_board
-
-
 def extract_temporal_feature(info):
     """
     Extract temporal features from the GameState.
@@ -328,7 +294,7 @@ def extract_temporal_feature(info):
             for name in PieceType.piece_names()
         },
         "hold_used": game_state.hold_used,
-        "time": 1 / max(game_state.current_time, 1),
+        # "time": 1 / max(game_state.current_time, 1),
     }
 
 

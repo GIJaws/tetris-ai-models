@@ -80,7 +80,7 @@ def train(config_path, model_path=None):
             current_episode_action_count = {action.index: 0 for action in GameAction}
 
             agent.reset()
-            board_history = [board_simple]
+            board_history = [(next_info["game_state"], next_info)]
 
             if not config.OPTIMISE_EVERY_STEP:  # TODO ensure this is the correct place to optimise once every episode
                 loss, grad_norms = agent.optimize_model()
@@ -121,11 +121,10 @@ def train(config_path, model_path=None):
                 current_episode_action_count[selected_action] += 1
                 _, step_reward, terminated, truncated, next_info = env.step([selected_action])
                 done = terminated or truncated
-                next_board_simple = next_info["game_state"].board.grid
-                board_history.append(next_board_simple)
+                board_history.append((next_info["game_state"], next_info))
 
-                # _, extra_info = calculate_reward(board_history, done, next_info)
-                # next_info["extra_info"] = extra_info
+                _, extra_info = calculate_reward(board_history, done)
+                next_info["extra_info"] = extra_info
 
                 next_temporal_feature = extract_temporal_feature(next_info)
                 next_feature = extract_current_feature(next_info)
@@ -149,7 +148,7 @@ def train(config_path, model_path=None):
                     done,
                 )
                 chicken_line_sum += info["game_state"].step_lines_cleared
-                # logger.log_every_step(total_steps=env.total_steps, info=next_info, chicken_line_sum=chicken_line_sum)
+                logger.log_every_step(total_steps=env.total_steps, info=next_info, chicken_line_sum=chicken_line_sum)
                 if config.OPTIMISE_EVERY_STEP:
                     loss, grad_norms = agent.optimize_model()
 
