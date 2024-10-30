@@ -145,7 +145,7 @@ def train(config_path, model_path=None):
                     ),
                     step_reward,
                     done,
-                    done,
+                    lost_a_life=done,
                 )
                 chicken_line_sum += info["game_state"].step_lines_cleared
                 logger.log_every_step(total_steps=env.total_steps, info=next_info, chicken_line_sum=chicken_line_sum)
