@@ -16,8 +16,8 @@ from agents.CNNLSTMDDQNAgent import CLDDAgent
 from utils.reward_functions import extract_temporal_feature, extract_current_feature
 
 
-# device = torch.device("cpu")
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def play(config_path, model_path):
@@ -114,5 +114,5 @@ def play(config_path, model_path):
 
 if __name__ == "__main__":
     config_path = r"tetris-ai-models\config\train_cnn_lstm_ddqn.yaml"
-    model_path_str = r"outputs\new\cnn_lstm_double_dqn_20241029_133823\models\cnn_lstm_double_dqn_episode_5500.pth"
+    model_path_str = r"outputs\new\cnn_lstm_double_dqn_20241030_160337\models\cnn_lstm_double_dqn_episode_21285.pth"
     play(config_path, model_path_str)

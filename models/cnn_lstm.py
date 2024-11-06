@@ -44,7 +44,7 @@ class CNNLSTM(nn.Module):
         self.lstm_input_size = self.conv_out_size + len(self.temporal_features)
 
         self.lstm = nn.LSTM(
-            input_size=self.lstm_input_size, hidden_size=128, num_layers=5, batch_first=True, dropout=0.2
+            input_size=self.lstm_input_size, hidden_size=512, num_layers=2, batch_first=True, dropout=0.2
         )
         self.lstm_out_size = self.lstm.hidden_size
 

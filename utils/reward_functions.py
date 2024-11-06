@@ -184,12 +184,12 @@ def calculate_rewards(
 
     unscaled_rewards: dict[str, float] = {
         "lines_cleared_per_step": 8.0 * game_state.step_lines_cleared,
-        "hole_decrease": game_state.board.count_holes() < prev_game_state.board.count_holes(),
+        # "hole_decrease": game_state.board.count_holes() < prev_game_state.board.count_holes(),
         # "piece_place": info["piece_timer"] == 0 and cur_time > 1,
     }
     reward_boundaries: dict[str, tuple[float, float]] = {
         "lines_cleared_per_step": (0, 32),
-        "hole_decrease": (0, 24),
+        # "hole_decrease": (0, 24),
         # "piece_place": (0, 24),
     }
 
@@ -274,7 +274,7 @@ def extract_temporal_feature(info):
     held_piece = game_state.held_piece
     held_piece_index = PieceType.piece_names().index(held_piece.name) if held_piece else -99
 
-    num_next_pieces = 1
+    num_next_pieces = 2
     next_pieces = [piece.name for piece in game_state.next_pieces[:num_next_pieces]]
     next_pieces_indices = [PieceType.piece_names().index(piece) for piece in next_pieces]
     next_pieces_indices += [-99] * (num_next_pieces - len(next_pieces_indices))
@@ -313,7 +313,7 @@ def extract_current_feature(info):
         # "time": 1 / max(info.get("time", 1), 1),
         # "bumpiness": np.sum(np.abs(np.diff(info["heights"]))) / 200,
         # "score": info.get("score", 0),
-        # **{f"ghost_piece_x_coords_{i}": x / 10 for i, (x, y) in enumerate(info["ghost_piece_coords"])},
-        # **{f"ghost_piece_y_coords_{i}": y / 20 for i, (x, y) in enumerate(info["ghost_piece_coords"])},
+        **{f"ghost_piece_x_coords_{i}": x / 10 for i, (x, y) in enumerate(info["game_state"].get_ghost_piece().shape)},
+        **{f"ghost_piece_y_coords_{i}": y / 20 for i, (x, y) in enumerate(info["game_state"].get_ghost_piece().shape)},
         # **{f"col_{i}_height": h for i, h in enumerate(heights)},
     }
