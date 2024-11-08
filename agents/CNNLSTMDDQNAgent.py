@@ -261,3 +261,18 @@ class CLDDAgent(TetrisAgent):
 
     def update_target_network(self):
         self.target_net.load_state_dict(self.policy_net.state_dict())
+
+    def soft_update_target_network(self, tau=0.005):
+        """
+        Perform a soft update of the target network parameters.
+
+        The update is done as follows:
+        θ_target = τ * θ_policy + (1 - τ) * θ_target
+
+        where θ_target are the target network parameters and θ_policy are the policy network parameters.
+
+        Args:
+        tau (float): The interpolation parameter. Default is 0.005.
+        """
+        for target_param, policy_param in zip(self.target_net.parameters(), self.policy_net.parameters()):
+            target_param.data.copy_(tau * policy_param.data + (1.0 - tau) * target_param.data)

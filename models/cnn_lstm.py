@@ -43,10 +43,13 @@ class CNNLSTM(nn.Module):
 
         self.lstm_input_size = self.conv_out_size + len(self.temporal_features)
 
-        self.lstm = nn.LSTM(
-            input_size=self.lstm_input_size, hidden_size=512, num_layers=2, batch_first=True, dropout=0.2
-        )
-        self.lstm_out_size = self.lstm.hidden_size
+        if self.lstm_input_size > 0:
+            self.lstm = nn.LSTM(
+                input_size=self.lstm_input_size, hidden_size=128, num_layers=4, batch_first=True, dropout=0.1
+            )
+            self.lstm_out_size = self.lstm.hidden_size
+        else:
+            self.lstm_out_size = 0
 
     def _init_fc_layers(self):
         """
@@ -95,17 +98,29 @@ class CNNLSTM(nn.Module):
         # Process all boards at once
         processed_boards = self._process_cnn(boards)  # output shape: [20, 1, 13440]
 
-        # Combine CNN output with temporal features
-        lstm_input = torch.cat([processed_boards, temporal_features], dim=2).float()
-        # output shape: [Sequence length=20, IDK=1, 13440+len(temporal_features)]
-        # TODO can we make this stack?
+        # # Combine CNN output with temporal features
+        # lstm_input = torch.cat([processed_boards, temporal_features], dim=2).float()
+        # # output shape: [Sequence length=20, IDK=1, 13440+len(temporal_features)]
+        # # TODO can we make this stack?
 
-        # Process through LSTM
-        lstm_out_all, _ = self.lstm(lstm_input)
-        lstm_out = lstm_out_all[:, -1, :]  # Take the last output
+        # Combine CNN output with temporal features (if any)
+        if self.temporal_features:
+            lstm_input = torch.cat([processed_boards, temporal_features], dim=2).float()
+        else:
+            lstm_input = processed_boards
 
-        # Combine LSTM output with current features
-        combined = torch.cat([lstm_out, current_features], dim=1).float()
+        # Process through LSTM (if any)
+        if self.lstm_out_size > 0:
+            lstm_out_all, _ = self.lstm(lstm_input)
+            lstm_out = lstm_out_all[:, -1, :]
+        else:
+            lstm_out = torch.zeros((processed_boards.size(0), 0))
+
+        # Combine LSTM output with current features (if any)
+        if self.current_features:
+            combined = torch.cat([lstm_out, current_features], dim=1).float()
+        else:
+            combined = lstm_out
 
         # Final FC layers
         x = F.leaky_relu(self.fc1(combined))

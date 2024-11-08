@@ -129,7 +129,7 @@ class LoggingManager:
         self.model_name = model_name
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.experiment_name = f"{self.model_name}_{self.timestamp}"
-        self.output_dir = f"outputs/new/{self.experiment_name}"
+        self.output_dir = f"outputs/newer/{self.experiment_name}"
         self.log_dir = f"{self.output_dir}/logs"
         self.model_dir = f"{self.output_dir}/models"
         self.tensorboard_dir = f"{self.output_dir}/tensorboard"

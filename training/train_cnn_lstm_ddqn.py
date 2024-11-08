@@ -110,9 +110,8 @@ def train(config_path, model_path=None):
                     env.total_steps if config.OPTIMISE_EVERY_STEP else episode,
                 )
 
-                # if is_random_action:
-                #     # print(info["random_valid_move"])
-                #     selected_action = info["random_valid_move"]
+                if (episode - 1) % config.VIDEO_EVERY_N_EPISODES == 0:  # If recording we want to use the policy action
+                    selected_action = policy_action
 
                 episode_q_values.append(step_q_values.cpu().numpy())
                 episode_double_q_values.append(step_double_q_value)
@@ -133,13 +132,13 @@ def train(config_path, model_path=None):
 
                 agent.update(
                     (
-                        info["game_state"].place_current_piece().board.grid,
+                        info["game_state"].get_float_board_grid(),
                         np.array(list(temporal_feature.values())),
                         np.array(list(feature.values())),
                     ),
                     selected_action,
                     (
-                        next_info["game_state"].place_current_piece().board.grid,
+                        next_info["game_state"].get_float_board_grid(),
                         np.array(list(next_temporal_feature.values())),
                         np.array(list(next_feature.values())),
                     ),
@@ -173,11 +172,13 @@ def train(config_path, model_path=None):
             logger.log_action_distribution_tensorboard(current_episode_action_count, episode)
             logger.log_hardware_usage_tensorboard(episode)
 
-            if episode % config.TARGET_UPDATE == 0:
+            if episode % config.TARGET_UPDATE == 0 and config.TARGET_UPDATE > 0:
                 agent.update_target_network()
+            else:
+                agent.soft_update_target_network(tau=config.TAU)
 
             # Save the trained model every SAVE_MODEL_INTERVAL
-            if episode % config.SAVE_MODEL_INTERVAL == 0:
+            if episode % config.SAVE_MODEL_INTERVAL == 0 or info["game_state"].lines_cleared >= 4:
                 agent.save_model(logger.get_model_path(episode))
 
     except KeyboardInterrupt:
@@ -192,7 +193,7 @@ def train(config_path, model_path=None):
 
 if __name__ == "__main__":
     config_path = r"tetris-ai-models\config\train_cnn_lstm_ddqn.yaml"
-    # model_path_str = r"outputs\cnn_lstm_double_dqn_20241006_011029\models\cnn_lstm_double_dqn_final.pth"
+    # model_path_str = r""
     model_path_str = None
 
     train(config_path, model_path_str)

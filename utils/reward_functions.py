@@ -175,10 +175,10 @@ def calculate_rewards(
     penalty_boundaries: dict[str, tuple[float, float]] = {
         # "height_penalty": (0, 20),
         # "piece_timer": (0, piece_threshold * 10),
-        "hole_penalty": (0, 300),  # ? actually max is 200 but scaling with this
+        "hole_penalty": (0, 200),  # ? actually max is 200 but scaling with this
         # "is_not_finesse": (0, 12),
-        "held_penalty": (0, 12),  # actually (0, 1) but this makes it 1/16 instead of 1 when true
-        "hole_increase": (0, 12),
+        "held_penalty": (0, 3),  # actually (0, 1) but this makes it 1/16 instead of 1 when true
+        "hole_increase": (0, 3),
         # "time_penalty": (0, 6),
     }
 
@@ -279,11 +279,11 @@ def extract_temporal_feature(info):
     next_pieces_indices = [PieceType.piece_names().index(piece) for piece in next_pieces]
     next_pieces_indices += [-99] * (num_next_pieces - len(next_pieces_indices))
 
-    current_piece = game_state.current_piece
+    # current_piece = game_state.current_piece
 
     return {
         **{f"action_{action.name}": game_state.info.get("actions", [None])[0] == action.name for action in GameAction},
-        **{f"current_piece_{name}": current_piece.name == name for name in PieceType.piece_names()},
+        # **{f"current_piece_{name}": current_piece.name == name for name in PieceType.piece_names()},
         **{
             f"next_piece_{i}_{name}": piece == PieceType.piece_names().index(name)
             for i, piece in enumerate(next_pieces_indices)
@@ -306,14 +306,36 @@ def extract_current_feature(info):
     :return: Dict of current feature values
     """
     game_state = cast(GameState, info["game_state"])
+    # held_piece = game_state.held_piece
+    # held_piece_index = PieceType.piece_names().index(held_piece.name) if held_piece else -99
+
+    num_next_pieces = 4  # TODO make this a config param
+    next_pieces = [piece.name for piece in game_state.next_pieces[:num_next_pieces]]
+    next_pieces_indices = [PieceType.piece_names().index(piece) for piece in next_pieces]
+    next_pieces_indices += [-99] * (num_next_pieces - len(next_pieces_indices))
+
+    current_piece = game_state.current_piece
+
     return {
+        # **{f"action_{action.name}": game_state.info.get("actions", [None])[0] == action.name for action in GameAction},
+        **{f"current_piece_{name}": current_piece.name == name for name in PieceType.piece_names()},
+        # **{
+        #     f"next_piece_{i}_{name}": piece == PieceType.piece_names().index(name)
+        #     for i, piece in enumerate(next_pieces_indices)
+        #     for name in PieceType.piece_names()
+        # },
+        # **{
+        #     f"held_piece_{name}": held_piece_index == PieceType.piece_names().index(name)
+        #     for name in PieceType.piece_names()
+        # },
+        "hold_used": game_state.hold_used,
         "holes": game_state.board.count_holes() / 200,
         "agg_height": np.sum(game_state.board.get_column_heights()) / 200,
         # "hold_used": info["hold_used"],
         # "time": 1 / max(info.get("time", 1), 1),
         # "bumpiness": np.sum(np.abs(np.diff(info["heights"]))) / 200,
         # "score": info.get("score", 0),
-        **{f"ghost_piece_x_coords_{i}": x / 10 for i, (x, y) in enumerate(info["game_state"].get_ghost_piece().shape)},
-        **{f"ghost_piece_y_coords_{i}": y / 20 for i, (x, y) in enumerate(info["game_state"].get_ghost_piece().shape)},
+        # **{f"ghost_piece_x_coords_{i}": x / 10 for i, (x, y) in enumerate(info["game_state"].get_ghost_piece().shape)},
+        # **{f"ghost_piece_y_coords_{i}": y / 20 for i, (x, y) in enumerate(info["game_state"].get_ghost_piece().shape)},
         # **{f"col_{i}_height": h for i, h in enumerate(heights)},
     }
